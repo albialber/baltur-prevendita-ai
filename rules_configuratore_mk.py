@@ -563,7 +563,7 @@ def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
                        LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
                        LI("96900328", "SSB 90"),
                        LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 4 BAR 1/2\"Fx3/4\"F")]
-            elif m == "MK115"]:
+            elif m == "MK115":
                 out = [LI(C["MK115"], "SMILE ENERGY MK 115"),
                        LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
                        LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
