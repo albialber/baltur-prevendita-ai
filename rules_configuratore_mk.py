@@ -118,7 +118,7 @@ C = {
     "MK160": "82000370",
 }
 
-# Mappa nomi "lunghi" -> codice per aggiungere le caldaie in distinta (cascata)
+# --- aggiunta: mappa nomi -> codici caldaie per distinta cascata ---
 BOILERS_CODE_CASCATA = {
     "SMILE ENERGY MK 50": C["MK50"],
     "SMILE ENERGY MK 70": C["MK70"],
@@ -440,7 +440,7 @@ def _box_pannelli_esterno(separatore: Separatore, sottoopzione: Optional[SottoOp
     ]
 
 # =========================
-# Helper: aggiungi caldaie in distinta (cascata)
+# Helper: caldaie in distinta (cascata)
 # =========================
 def _boiler_lines_cascata(caldaie: Dict[str, int]) -> List[LineItem]:
     items: List[LineItem] = []
@@ -500,7 +500,7 @@ def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
         # Centralina
         centr = _centralina_items(cfg.centralina, qty)
 
-        # **Aggiunta richiesta**: caldaie sempre in distinta per le configurazioni in batteria
+        # Aggiunta: caldaie in distinta per tutte le configurazioni in batteria
         boilers = _boiler_lines_cascata(cfg.caldaie)
 
         out = []
@@ -533,7 +533,7 @@ def _merge_same_code(items: List[LineItem]) -> List[LineItem]:
     return [acc[c] for c in ordered]
 
 # =========================
-# DISTINTE - SINGOLE (come versione precedente; non modificata)
+# DISTINTE - SINGOLE (immutato)
 # =========================
 def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
     m = cfg.singola_modello.strip().upper().replace(" ", "")
@@ -563,7 +563,7 @@ def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
                        LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
                        LI("96900328", "SSB 90"),
                        LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 4 BAR 1/2\"Fx3/4\"F")]
-            elif m == "MK115":
+            elif m == "MK115"]:
                 out = [LI(C["MK115"], "SMILE ENERGY MK 115"),
                        LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
                        LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
