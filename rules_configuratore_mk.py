@@ -1,4 +1,3 @@
-# rules_configuratore_mk.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Literal
@@ -14,8 +13,6 @@ BOILERS_POT = {
     "SMILE ENERGY MK 160SP": 105,
     "SMILE ENERGY MK 160": 145,
 }
-
-# (facoltativo) alias -> nome standard
 BOILERS_ALIAS = {
     "MK 50": "SMILE ENERGY MK 50",
     "MK 70": "SMILE ENERGY MK 70",
@@ -24,13 +21,11 @@ BOILERS_ALIAS = {
     "MK 160SP": "SMILE ENERGY MK 160SP",
     "MK 160": "SMILE ENERGY MK 160",
 }
-
 MIN_QTY = 2
 MAX_QTY = 4
 
 # =========================
-# CODICI (dalla tua tabella)
-# NB: i nomi sono descrittivi, l'app farà lookup su Excel usando il "code".
+# CODICI (dal listino)
 # =========================
 C = {
     # Telai muro / isola
@@ -46,12 +41,12 @@ C = {
 
     # INAIL / valvole INAIL / valvole intercettazione combustibile
     "KIT_INAIL_ORIZZ": "96870509",
-    "KIT_INAIL_ENERGY": "96870503",        # usato nelle singole
-    "KIT_INAIL_SMILE160": "96870520",      # usato nelle singole 160/160SP esterno
-    "VALV_2_7_BAR_1\":1_1_4F": "96870517", # cascata (diam maggiore)
+    "KIT_INAIL_ENERGY": "96870503",
+    "KIT_INAIL_SMILE160": "96870520",
+    "VALV_2_7_BAR_1\":1_1_4F": "96870517",
     "VALV_4_BAR_1\":1_1_4F": "96870519",
-    "VALV_2_7_BAR_1_2\"Fx3_4\"F": "96870516", # singole
-    "VALV_4_BAR_1_2\"Fx3_4\"F": "96870518",   # singole
+    "VALV_2_7_BAR_1_2\"Fx3_4\"F": "96870516",
+    "VALV_4_BAR_1_2\"Fx3_4\"F": "96870518",
     "VALV_INT_COMB_1": "96900033",
     "VALV_INT_COMB_1_1_2": "96900035",
 
@@ -80,7 +75,7 @@ C = {
     "COLL_ISOLA_D200": "96870728",
     "ADATT_ISOLA_AT80": "96870729",
     "ADATT_ISOLA_AT100": "96870730",
-    "TAPPO_ISOLA": "96870731",  # usato nei casi a 3 caldaie
+    "TAPPO_ISOLA": "96870731",
     "TAPPO_ISOLA_D160": "96870706",
     "TAPPO_ISOLA_D200": "96870707",
 
@@ -114,8 +109,7 @@ C = {
     "MODBUS_IF": "96910035",
     "IF_0_10V": "96910025",
 
-    # Caldaie (codici per scenari "singola")
-    "MK50SP": "82000380",
+    # Caldaie (codici ufficiali)
     "MK50": "82000390",
     "MK70": "82000330",
     "MK90": "82000340",
@@ -124,30 +118,26 @@ C = {
     "MK160": "82000370",
 }
 
-# Scambiatori (liste per scelta “manuale” in UI; l’app farà lookup su Excel)
-SSB_MODELS = [
-    # es: ("96900326", "SSB 55")
-    # elenco completo nel tuo documento di input, l'app può leggerli da Excel.
-]
-SII_PRO_MODELS = [
-    # es: ("96900400", "SII 55 PRO")
-    # idem, leggibili da Excel
-]
+# Mappa nomi "lunghi" -> codice per aggiungere le caldaie in distinta (cascata)
+BOILERS_CODE_CASCATA = {
+    "SMILE ENERGY MK 50": C["MK50"],
+    "SMILE ENERGY MK 70": C["MK70"],
+    "SMILE ENERGY MK 90": C["MK90"],
+    "SMILE ENERGY MK 115": C["MK115"],
+    "SMILE ENERGY MK 160SP": C["MK160SP"],
+    "SMILE ENERGY MK 160": C["MK160"],
+}
+
+# (facoltativo) liste scambiatori per UI
+SSB_MODELS: List[tuple[str, str]] = []
+SII_PRO_MODELS: List[tuple[str, str]] = []
 
 # =========================
 # Tipi & strutture
 # =========================
-MacroCfg = Literal[
-    "INT_LINEA",       # cascata interno in linea
-    "INT_ISOLA",       # cascata interno ad isola
-    "ESTERNO",         # cascata esterno
-    "SINGOLO_INT",     # singola interno
-    "SINGOLO_EST",     # singola esterno
-]
-
+MacroCfg = Literal["INT_LINEA", "INT_ISOLA", "ESTERNO", "SINGOLO_INT", "SINGOLO_EST"]
 Separatore = Literal["NESSUNA", "SSB", "SII_PRO", "EQUILIBRATORE"]
 SottoOpz = Literal["KIT_TUBI", "KIT_TUBI_CIRC", "NESSUNA"]
-
 Centralina = Literal["ALPHA", "THETA", "OMEGA", "MODBUS", "0-10V"]
 
 @dataclass
@@ -159,18 +149,15 @@ class LineItem:
 @dataclass
 class ConfigInput:
     macro: MacroCfg
-    # per cascata
-    caldaie: Optional[Dict[str, int]] = None   # {"SMILE ENERGY MK 70": 1, ...}
+    # cascata
+    caldaie: Optional[Dict[str, int]] = None
     separatore: Optional[Separatore] = None
     sottoopzione: Optional[SottoOpz] = None
-    # scelta scambiatori (visualizzati da UI, qui passiamo il codice scelto)
     ssb_code: Optional[str] = None
     sii_code: Optional[str] = None
-    # centralina (obbligatoria in percorsi cascata)
     centralina: Optional[Centralina] = None
-
-    # per singola
-    singola_modello: Optional[str] = None          # "MK 50"/"MK 70"/...
+    # singola
+    singola_modello: Optional[str] = None
     singola_sottocat: Optional[Literal["SSB", "EQUILIBRATORE"]] = None
 
 # =========================
@@ -180,8 +167,6 @@ def _norm_boiler_name(name: str) -> str:
     return BOILERS_ALIAS.get(name, name)
 
 def _potenze(caldaie: Dict[str, int]) -> Tuple[int, int, int, Dict[int, int]]:
-    # ritorna: qty_tot, ptot, pmax, conteggio per attacco fumisteria: {80: n, 100: n}
-    # attacchi: 80 per potenze 46/61; 100 per 82/105/145  :contentReference[oaicite:1]{index=1}
     qty = 0
     potenze = []
     attacchi = {80: 0, 100: 0}
@@ -203,24 +188,21 @@ def _potenze(caldaie: Dict[str, int]) -> Tuple[int, int, int, Dict[int, int]]:
     return qty, ptot, pmax, attacchi
 
 def _valvola_inail_cascata(pmax: int) -> LineItem:
-    # 46/61 => 2.7 bar (1" Fx 1"1/4F), altrimenti 4 bar  :contentReference[oaicite:2]{index=2}
     if pmax in (46, 61):
-        return LineItem(C["VALV_2_7_BAR_1\":1_1_4F"], "VALV. INAIL 2.7 BAR 1\"Fx1\"1/4F", 1)
-    return LineItem(C["VALV_4_BAR_1\":1_1_4F"], "VALV. INAIL 4 BAR 1\"Fx1\"1/4F", 1)
+        return LineItem(C["VALV_2_7_BAR_1\":1_1_4F"], 'VALV. INAIL 2.7 BAR 1"Fx1"1/4F', 1)
+    return LineItem(C["VALV_4_BAR_1\":1_1_4F"], 'VALV. INAIL 4 BAR 1"Fx1"1/4F', 1)
 
 def _valvola_interc_comb(ptot: int) -> Optional[LineItem]:
-    # <250 => 1", 250..450 => 1"1/2, >450 => nessuna  :contentReference[oaicite:3]{index=3}
     if ptot < 250:
-        return LineItem(C["VALV_INT_COMB_1"], "VALVOLA INTERC.NE COMB. 1\"")
+        return LineItem(C["VALV_INT_COMB_1"], 'VALVOLA INTERC.NE COMB. 1"')
     if 250 <= ptot <= 450:
-        return LineItem(C["VALV_INT_COMB_1_1_2"], "VALVOLA INTERC.NE COMB. 1\"1/2")
+        return LineItem(C["VALV_INT_COMB_1_1_2"], 'VALVOLA INTERC.NE COMB. 1"1/2')
     return None
 
 # =========================
 # Telai
 # =========================
 def _telai_linea(qty: int) -> List[LineItem]:
-    # 2: 1x muro 2E ; 3: 1x muro 2E + 1x muro 1E ; 4: 2x muro 2E  :contentReference[oaicite:4]{index=4}
     if qty == 2:
         return [LineItem(C["TELAIO_MURO_2E"], "KIT TELAIO MURO 2ELEM. ENERGY", 1)]
     if qty == 3:
@@ -233,7 +215,6 @@ def _telai_linea(qty: int) -> List[LineItem]:
     raise ValueError("qty non gestita per telai linea")
 
 def _telai_isola(qty: int) -> List[LineItem]:
-    # 2: 1x isola 2E ; 3: 1x isola 4E ; 4: 1x isola 4E  :contentReference[oaicite:5]{index=5}
     if qty == 2:
         return [LineItem(C["TELAIO_ISOLA_2E"], "KIT TELAIO ISOLA 2ELEM. ENERGY", 1)]
     if qty in (3, 4):
@@ -244,9 +225,6 @@ def _telai_isola(qty: int) -> List[LineItem]:
 # Collettori
 # =========================
 def _collettori_linea(qty: int) -> List[LineItem]:
-    # 2: 1x GAS2E + 1x MIRI2E + 1x SC_COND2E
-    # 3: (GAS2E + GAS1E) + (MIRI2E + MIRI1E) + (SC_COND2E + SC_COND1E)
-    # 4: 2x GAS2E + 2x MIRI2E + 2x SC_COND2E  :contentReference[oaicite:6]{index=6}
     if qty == 2:
         return [
             LineItem(C["COLL_GAS_2E"], "KIT COLLETTORE GAS 2E", 1),
@@ -271,7 +249,6 @@ def _collettori_linea(qty: int) -> List[LineItem]:
     raise ValueError("qty non gestita per collettori linea")
 
 def _collettori_isola(qty: int) -> List[LineItem]:
-    # con extra 96900182 come da specifica  :contentReference[oaicite:7]{index=7}
     if qty == 2:
         return [
             LineItem(C["COLL_GAS_1E"], "KIT COLLETTORE GAS 1E", 1),
@@ -302,15 +279,10 @@ def _collettori_isola(qty: int) -> List[LineItem]:
 # Fumisteria (interno)
 # =========================
 def _fumisteria_linea(ptot: int, attacchi: Dict[int, int]) -> List[LineItem]:
-    # 0..160 => D125; 161..260 => D160; >261 => D200
-    # AT.DN80 per pot. 46/61 ; AT.DN100 per 82/105/145. 1 tappo totale.  :contentReference[oaicite:8]{index=8}
     items: List[LineItem] = []
     if ptot <= 160:
         if attacchi[80] > 0:
             items.append(LineItem(C["KIT_FUMI_D125_AT80"], "KIT COL.RE FUMI D125 AT.DN80", attacchi[80]))
-        if attacchi[100] > 0:
-            # non esiste D125 AT100 in elenco -> nulla
-            pass
         items.append(LineItem(C["TAPPO_D125"], "TAPPO COL.RE FUMI D125", 1))
     elif 161 <= ptot <= 260:
         if attacchi[80] > 0:
@@ -327,10 +299,8 @@ def _fumisteria_linea(ptot: int, attacchi: Dict[int, int]) -> List[LineItem]:
     return items
 
 def _fumisteria_isola(ptot: int, attacchi: Dict[int, int], qty: int) -> List[LineItem]:
-    # 0..260 => D160 ; >261 => D200 ; con regole per numero caldaie e tappi  :contentReference[oaicite:9]{index=9}
     items: List[LineItem] = []
     if ptot <= 260:
-        # base
         if qty == 2:
             items.append(LineItem(C["COLL_ISOLA_D160"], "COLLETTORE ISOLA D160", 1))
             items.append(LineItem(C["TAPPO_ISOLA_D160"], "TAPPO COL.RE FUMI D160", 1))
@@ -340,7 +310,6 @@ def _fumisteria_isola(ptot: int, attacchi: Dict[int, int], qty: int) -> List[Lin
             items.append(LineItem(C["TAPPO_ISOLA"], "TAPPO ACCESSORIO ISOLA", 1))
         elif qty == 4:
             items.append(LineItem(C["COLL_ISOLA_D160"], "COLLETTORE ISOLA D160", 2))
-        # adattatori per ogni caldaia
         if attacchi[80] > 0:
             items.append(LineItem(C["ADATT_ISOLA_AT80"], "ADATTATORE ISOLA AT80", attacchi[80]))
         if attacchi[100] > 0:
@@ -379,7 +348,6 @@ def _acc_ssb(pmax: int, ptot: int, sottoopzione: SottoOpz, ssb_code: Optional[st
     elif sottoopzione == "KIT_TUBI_CIRC":
         items.append(LineItem(C["KIT_TUBI_SCAMB_CIRC_DX"], "KIT TUBI SCAMB.-CIRCOL. BOX DX", 1))
         items.append(_valvola_inail_cascata(pmax))
-        # circolatore lato secondario: <280 => 96870524 ; >=280 => 96870525  :contentReference[oaicite:10]{index=10}
         circ = C["CIRC_MAGNA1_50_100"] if ptot < 280 else C["CIRC_MAGNA1_65_150"]
         items.append(LineItem(circ, "CIRCOLATORE SECONDARIO", 1))
     else:
@@ -400,7 +368,6 @@ def _acc_sii(pmax: int, ptot: int, sii_code: Optional[str]) -> List[LineItem]:
     return items
 
 def _acc_equil(ptot: int, pmax: int, sottoopzione: SottoOpz) -> List[LineItem]:
-    # <280 => DN65 ; >=280 => DN100  :contentReference[oaicite:11]{index=11}
     dn = "DN65" if ptot < 280 else "DN100"
     items: List[LineItem] = []
     if sottoopzione == "KIT_TUBI":
@@ -422,7 +389,7 @@ def _acc_equil(ptot: int, pmax: int, sottoopzione: SottoOpz) -> List[LineItem]:
     return items
 
 # =========================
-# Centraline (quantità in funzione #caldaie)  :contentReference[oaicite:12]{index=12}
+# Centraline
 # =========================
 def _centralina_items(centralina: Centralina, qty_cald: int) -> List[LineItem]:
     if centralina == "ALPHA":
@@ -447,7 +414,7 @@ def _centralina_items(centralina: Centralina, qty_cald: int) -> List[LineItem]:
     raise ValueError("Centralina non riconosciuta")
 
 # =========================
-# ESTERNO: terminali fumi + box/pannelli  :contentReference[oaicite:13]{index=13}
+# Esterno: terminali + box/pannelli
 # =========================
 def _terminali_esterno(attacchi: Dict[int, int]) -> List[LineItem]:
     items: List[LineItem] = []
@@ -458,31 +425,36 @@ def _terminali_esterno(attacchi: Dict[int, int]) -> List[LineItem]:
     return items
 
 def _box_pannelli_esterno(separatore: Separatore, sottoopzione: Optional[SottoOpz], qty_cald: int) -> List[LineItem]:
-    # regole "box 1 modulo" + pannelli in base a separatore/sottoopzione  :contentReference[oaicite:14]{index=14}
     add = 0
     if separatore == "SII_PRO":
         add = 2
     elif separatore == "SSB":
-        if sottoopzione in ("KIT_TUBI", "KIT_TUBI_CIRC"):
-            add = 1
-        else:
-            add = 2
+        add = 1 if sottoopzione in ("KIT_TUBI", "KIT_TUBI_CIRC") else 2
     elif separatore == "EQUILIBRATORE":
-        if sottoopzione == "KIT_TUBI":
-            add = 1
-        elif sottoopzione == "KIT_TUBI_CIRC":
-            add = 2
-        else:
-            add = 2
+        add = 1 if sottoopzione == "KIT_TUBI" else 2
     elif separatore == "NESSUNA":
         add = 1
-    items = [LineItem(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE", qty_cald + add),
-             LineItem(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE", 1)]
-    # in alcuni casi (singole 160/160SP esterne) serve anche KIT ESTENSIONE; per cascata non indicato
+    return [
+        LineItem(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE", qty_cald + add),
+        LineItem(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE", 1)
+    ]
+
+# =========================
+# Helper: aggiungi caldaie in distinta (cascata)
+# =========================
+def _boiler_lines_cascata(caldaie: Dict[str, int]) -> List[LineItem]:
+    items: List[LineItem] = []
+    for full_name, qty in caldaie.items():
+        if qty <= 0:
+            continue
+        code = BOILERS_CODE_CASCATA.get(full_name)
+        if not code:
+            continue
+        items.append(LineItem(code, full_name, qty))
     return items
 
 # =========================
-# GENERATORE DISTINTA (MACRO)
+# GENERATORE DISTINTA
 # =========================
 def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
     if cfg.macro in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
@@ -490,11 +462,18 @@ def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
             raise ValueError("Per le configurazioni in cascata servono caldaie, separatore e centralina.")
         qty, ptot, pmax, att = _potenze(cfg.caldaie)
 
-        # telai + collettori
-        telai = _telai_linea(qty) if cfg.macro == "INT_LINEA" else (_telai_isola(qty) if cfg.macro == "INT_ISOLA" else [])
-        coll = _collettori_linea(qty) if cfg.macro == "INT_LINEA" else (_collettori_isola(qty) if cfg.macro == "INT_ISOLA" else [])
+        # Telai & Collettori
+        if cfg.macro == "INT_LINEA":
+            telai = _telai_linea(qty)
+            coll = _collettori_linea(qty)
+        elif cfg.macro == "INT_ISOLA":
+            telai = _telai_isola(qty)
+            coll = _collettori_isola(qty)
+        else:  # ESTERNO -> **AGGIUNTA collettori come interno in linea**
+            telai = []
+            coll = _collettori_linea(qty)
 
-        # accessori per separatore
+        # Accessori per separatore
         if cfg.separatore == "NESSUNA":
             acc = _acc_nessuna(pmax, ptot)
         elif cfg.separatore == "SSB":
@@ -510,31 +489,30 @@ def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
         else:
             raise ValueError("Separatore non riconosciuto")
 
-        # fumisteria / terminali
+        # Fumi / terminali
         if cfg.macro == "INT_LINEA":
             fumi = _fumisteria_linea(ptot, att)
         elif cfg.macro == "INT_ISOLA":
             fumi = _fumisteria_isola(ptot, att, qty)
-        else:  # ESTERNO
+        else:
             fumi = _terminali_esterno(att)
 
-        # centralina
+        # Centralina
         centr = _centralina_items(cfg.centralina, qty)
 
+        # **AGGIUNTA**: caldaie in distinta per tutte le configurazioni in batteria
+        boilers = _boiler_lines_cascata(cfg.caldaie)
+
         out = []
-        # (facoltativo) inserire anche le caldaie come linee descrittive senza codice, se vuoi
-        # for k, q in cfg.caldaie.items():
-        #     if q > 0: out.append(LineItem("", k, q))
+        out += boilers + telai + coll + acc + fumi + centr
 
-        out += telai + coll + acc + fumi + centr
-
-        # Esterno: aggiunta box/pannelli alla fine
+        # Esterno: box/pannelli
         if cfg.macro == "ESTERNO":
             out += _box_pannelli_esterno(cfg.separatore, cfg.sottoopzione, qty)
 
         return _merge_same_code(out)
 
-    # SINGOLE
+    # SINGOLE (immutato)
     if cfg.macro in ("SINGOLO_INT", "SINGOLO_EST"):
         if not cfg.singola_modello or not cfg.singola_sottocat:
             raise ValueError("Per le singole servono modello e sottocategoria.")
@@ -555,14 +533,12 @@ def _merge_same_code(items: List[LineItem]) -> List[LineItem]:
     return [acc[c] for c in ordered]
 
 # =========================
-# DISTINTE - SINGOLE (da specifica)
-# vincoli: equilibratore NON selezionabile per 160/160SP  :contentReference[oaicite:15]{index=15}
+# DISTINTE - SINGOLE (come versione precedente; non modificata)
 # =========================
 def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
     m = cfg.singola_modello.strip().upper().replace(" ", "")
     cat = cfg.singola_sottocat
 
-    # helper aggiunta
     def LI(code, name, qty=1): return LineItem(code, name, qty)
 
     out: List[LineItem] = []
