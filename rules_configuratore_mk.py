@@ -79,7 +79,7 @@ C = {
     "TAPPO_ISOLA_D160": "96870706",
     "TAPPO_ISOLA_D200": "96870707",
 
-    # Terminali per configurazioni esterne (al posto fumisteria)
+    # Terminali per configurazioni esterne (al posto fumisteria interna)
     "TERMINALE_D80": "96600445",
     "TERMINALE_D100": "96600446",
 
@@ -109,7 +109,7 @@ C = {
     "MODBUS_IF": "96910035",
     "IF_0_10V": "96910025",
 
-    # Caldaie (codici ufficiali)
+    # Caldaie (codici ufficiali per aggiunta in batteria)
     "MK50": "82000390",
     "MK70": "82000330",
     "MK90": "82000340",
@@ -469,7 +469,7 @@ def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
         elif cfg.macro == "INT_ISOLA":
             telai = _telai_isola(qty)
             coll = _collettori_isola(qty)
-        else:  # ESTERNO -> **AGGIUNTA collettori come interno in linea**
+        else:  # ESTERNO -> collettori come interno in linea (richiesta)
             telai = []
             coll = _collettori_linea(qty)
 
@@ -500,7 +500,7 @@ def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
         # Centralina
         centr = _centralina_items(cfg.centralina, qty)
 
-        # **AGGIUNTA**: caldaie in distinta per tutte le configurazioni in batteria
+        # **Aggiunta richiesta**: caldaie sempre in distinta per le configurazioni in batteria
         boilers = _boiler_lines_cascata(cfg.caldaie)
 
         out = []
