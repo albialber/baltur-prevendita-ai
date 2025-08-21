@@ -6,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import re
 
-# === Configuratore: importa le regole
+# === Configuratore: importa le regole (già esistenti)
 from rules_configuratore_mk import ConfigInput, genera_distinta
 
 st.set_page_config(page_title="Baltur PREVENDITA AI", layout="centered")
@@ -17,8 +17,18 @@ st.image("baltur_logo.png", width=300)
 # Titolo senza emoticon
 st.title("Baltur Prevendita AI")
 
+# ---------------------------------
+# Stato per ricordare l’ultimo output
+# ---------------------------------
+if "output_rows" not in st.session_state:
+    st.session_state["output_rows"] = []
+if "totale_conf" not in st.session_state:
+    st.session_state["totale_conf"] = 0.0
+# flag per evitare doppia stampa nella stessa esecuzione
+st.session_state["rendered_this_run"] = False
+
 # =========================
-# **SEZIONE ORIGINALE** (ripristinata IDENTICA)
+# SEZIONE ORIGINALE (identica)
 # =========================
 descrizione = st.text_area(
     "Descrivi cosa ti serve (usa + per più prodotti, es. 2x pompa '300' + accumulo 200L)",
@@ -36,12 +46,12 @@ else:
     sconti = []
 
 # =========================
-# **NUOVA SEZIONE**: CONFIGURATORE (aggiunta sotto, non altera la logica/UX di sopra)
+# NUOVA SEZIONE: CONFIGURATORE (aggiunta, non altera la parte sopra)
 # =========================
 st.markdown("---")
 st.subheader("🧩 Configuratore SMILE ENERGY MK")
 
-# Scelta macro-configurazione (con opzione 'Nessuna' per non usarlo)
+# Scelta macro-configurazione (con opzione 'Nessuna')
 macro_label_to_value = {
     "Nessuna (usa solo la ricerca testuale)": None,
     "Cascata interno - in linea": "INT_LINEA",
@@ -111,7 +121,6 @@ if macro_value in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
 
     centralina = st.selectbox("Centralina", ["ALPHA", "THETA", "OMEGA", "MODBUS", "0-10V"], index=0)
 
-    # Costruisco l'input per la logica (dizionario come atteso)
     cfg_input = ConfigInput(
         macro=macro_value,
         caldaie=caldaie_sel,
@@ -132,8 +141,40 @@ elif macro_value in ("SINGOLO_INT", "SINGOLO_EST"):
         singola_sottocat=sottocat
     )
 
+# -------------------------
+# Utils per sconti
+# -------------------------
+def applica_sconti(prezzo: float, sconti: list[float]) -> float:
+    p = float(prezzo)
+    for s in sconti:
+        p *= (1 - float(s)/100.0)
+    return p
+
+def show_summary_and_order_entry(rows: list, total: float):
+    """Mostra riepilogo + bottone 'Dati per Order Entry' sotto al totale."""
+    if not rows:
+        return
+    st.subheader("📊 Riepilogo preventivo")
+    df_tabella = pd.DataFrame(rows)
+    st.table(df_tabella)
+    st.markdown(f"**Totale configurazione:** {total:,.2f} €")
+
+    # Bottone richiesto: Dati per Order Entry
+    if st.button("📋 Dati per Order Entry"):
+        # Costruisci stringa: CODICE;QUANTITA (una riga per riga tabella)
+        lines = []
+        for r in rows:
+            codice = str(r.get("Codice", "")).strip()
+            quantita = r.get("Quantità", 0)
+            lines.append(f"{codice};{quantita}")
+        payload = "\n".join(lines)
+
+        st.subheader("Dati per Order Entry")
+        # Blocco copiabile (ha il pulsante copia automatico)
+        st.code(payload, language=None)
+
 # =========================
-# **BOTTONE ORIGINALE** (resta dov’è e fa tutto)
+# GENERA PREVENTIVO (originale + aggiunta salvataggio stato)
 # =========================
 if st.button("Genera preventivo"):
     with open("embeddings.pkl", "rb") as f:
@@ -152,14 +193,13 @@ if st.button("Genera preventivo"):
     righe_tabella = []
     totale_configurazione = 0.0
 
-    # ======= Parte 1: RICERCA TESTUALE (identica alla tua) =======
-    descrizioni_singole = [s.strip() for s in descrizione.split("+") if s.strip()]
+    # ======= Parte 1: RICERCA TESTUALE (identica) =======
+    descrizioni_singole = [s.strip() for s in (descrizione or "").split("+") if s.strip()]
 
     for singola in descrizioni_singole:
         query = singola.lower()
 
         quantita = 1
-
         quant_match = re.search(r"^\s*(\d+)\s*[xX]\s*", query)
         if quant_match:
             quantita = int(quant_match.group(1))
@@ -198,7 +238,7 @@ if st.button("Genera preventivo"):
         idx = I[0][0]
 
         prodotto = df_filtrato.iloc[idx]
-        prezzo_unitario = prodotto["Prezzo di listino"]
+        prezzo_unitario = float(prodotto["Prezzo di listino"])
 
         if mostra_netto:
             for sconto in sconti:
@@ -235,7 +275,7 @@ if st.button("Genera preventivo"):
                     continue
                 prodotto_row = rec.iloc[0]
 
-                prezzo_unitario = prodotto_row["Prezzo di listino"]
+                prezzo_unitario = float(prodotto_row["Prezzo di listino"])
                 if mostra_netto:
                     for sconto in sconti:
                         prezzo_unitario *= (1 - sconto / 100)
@@ -243,7 +283,6 @@ if st.button("Genera preventivo"):
                 prezzo_totale = prezzo_unitario * item.qty
                 totale_configurazione += prezzo_totale
 
-                # stampa breve (coerente con la parte sopra)
                 st.markdown(f"""
                 🧾 **{prodotto_row['Prodotto']}**  
                 **Codice:** `{prodotto_row['Codice']}`  
@@ -263,9 +302,14 @@ if st.button("Genera preventivo"):
         except Exception as e:
             st.error(f"Configuratore: {e}")
 
-    # ======= Riepilogo finale (come già facevi) =======
-    if righe_tabella:
-        st.subheader("📊 Riepilogo preventivo")
-        df_tabella = pd.DataFrame(righe_tabella)
-        st.table(df_tabella)
-        st.markdown(f"**Totale configurazione:** {totale_configurazione:,.2f} €")
+    # ======= Riepilogo finale + salvataggio stato =======
+    st.session_state["output_rows"] = righe_tabella
+    st.session_state["totale_conf"] = float(totale_configurazione)
+    show_summary_and_order_entry(righe_tabella, totale_configurazione)
+    st.session_state["rendered_this_run"] = True
+
+# =========================
+# RENDER persistente (per far funzionare il bottone dopo il rerun)
+# =========================
+if st.session_state.get("output_rows") and not st.session_state.get("rendered_this_run"):
+    show_summary_and_order_entry(st.session_state["output_rows"], st.session_state["totale_conf"])
