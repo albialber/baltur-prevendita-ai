@@ -6,9 +6,13 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import re
 
-# === Configuratore: importa le regole (già esistenti)
-from rules_configuratore_mk import ConfigInput, genera_distinta
+# === Configuratori ===
+from rules_configuratore_mk import ConfigInput as ConfigInputMK, genera_distinta as genera_distinta_mk
+from rules_configuratore_solare import ConfigSolareInput, genera_distinta_solare
 
+# -------------------------------------------------------
+# Impostazioni pagina
+# -------------------------------------------------------
 st.set_page_config(page_title="Baltur PREVENDITA AI", layout="centered")
 
 # Logo grande centrato da file locale
@@ -17,19 +21,22 @@ st.image("baltur_logo.png", width=300)
 # Titolo senza emoticon
 st.title("Baltur Prevendita AI")
 
-# ---------------------------------
-# Stato per ricordare l’ultimo output
-# ---------------------------------
+# -------------------------------------------------------
+# Stato applicazione
+# -------------------------------------------------------
 if "output_rows" not in st.session_state:
     st.session_state["output_rows"] = []
 if "totale_conf" not in st.session_state:
     st.session_state["totale_conf"] = 0.0
 # flag per evitare doppia stampa nella stessa esecuzione
 st.session_state["rendered_this_run"] = False
+# visibilità configuratore solare
+if "show_solar" not in st.session_state:
+    st.session_state["show_solar"] = False
 
-# =========================
-# SEZIONE ORIGINALE (identica)
-# =========================
+# -------------------------------------------------------
+# SEZIONE ORIGINALE: prompt testuale + sconti (INVARIATA)
+# -------------------------------------------------------
 descrizione = st.text_area(
     "Descrivi cosa ti serve (usa + per più prodotti, es. 2x pompa '300' + accumulo 200L)",
     height=150
@@ -45,13 +52,12 @@ if mostra_netto:
 else:
     sconti = []
 
-# =========================
-# NUOVA SEZIONE: CONFIGURATORE (aggiunta, non altera la parte sopra)
-# =========================
+# -------------------------------------------------------
+# CONFIGURATORE SMILE ENERGY MK (INVARIATO NEL COMPORTAMENTO)
+# -------------------------------------------------------
 st.markdown("---")
 st.subheader("🧩 Configuratore SMILE ENERGY MK")
 
-# Scelta macro-configurazione (con opzione 'Nessuna')
 macro_label_to_value = {
     "Nessuna (usa solo la ricerca testuale)": None,
     "Cascata interno - in linea": "INT_LINEA",
@@ -67,7 +73,7 @@ macro_label = st.selectbox(
 )
 macro_value = macro_label_to_value[macro_label]
 
-cfg_input = None
+cfg_input_mk = None
 
 if macro_value in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
     st.caption("Seleziona quantità (totale 2–4 caldaie, anche modelli diversi).")
@@ -93,7 +99,6 @@ if macro_value in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
     tot_calde = sum(caldaie_sel.values())
     st.caption(f"Totale caldaie selezionate: **{tot_calde}**")
 
-    # Separatore (mappa etichetta -> valore atteso dalla logica)
     sep_label_to_value = {
         "NESSUNA": "NESSUNA",
         "SCAMBIATORE SALDOBRASATO SSB": "SSB",
@@ -121,7 +126,7 @@ if macro_value in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
 
     centralina = st.selectbox("Centralina", ["ALPHA", "THETA", "OMEGA", "MODBUS", "0-10V"], index=0)
 
-    cfg_input = ConfigInput(
+    cfg_input_mk = ConfigInputMK(
         macro=macro_value,
         caldaie=caldaie_sel,
         separatore=separatore_value,
@@ -135,15 +140,64 @@ elif macro_value in ("SINGOLO_INT", "SINGOLO_EST"):
     st.caption("Configurazione singola")
     modello = st.selectbox("Modello", ["MK 50", "MK 70", "MK 90", "MK 115", "MK 160SP", "MK 160"], index=0)
     sottocat = st.radio("Sottocategoria", ["SSB", "EQUILIBRATORE"], index=0, horizontal=True)
-    cfg_input = ConfigInput(
+    cfg_input_mk = ConfigInputMK(
         macro=macro_value,
         singola_modello=modello,
         singola_sottocat=sottocat
     )
 
-# -------------------------
-# Utils per sconti
-# -------------------------
+# -------------------------------------------------------
+# NUOVA SEZIONE: Configuratore solare termico (AGGIUNTA)
+# -------------------------------------------------------
+st.markdown("---")
+st.subheader("☀️ Configuratore solare termico")
+
+# mostra gli step solo se l'utente clicca il bottone
+if st.button("Apri configuratore solare termico"):
+    st.session_state["show_solar"] = True
+
+cfg_input_sol = None
+if st.session_state["show_solar"]:
+    # Step 1: tipologia tetto
+    tetto_map = {"Tetto inclinato a coppi": "INCLINATO_COPPI", "Tetto piano": "PIANO"}
+    tetto_label = st.selectbox("Tipologia di tetto", list(tetto_map.keys()), index=0)
+    tetto_val = tetto_map[tetto_label]
+
+    # Step 2: tipologia pannello
+    pannello_map = {"ETASUN 25": "ETASUN25", "ETASUN 20": "ETASUN20"}
+    pannello_label = st.selectbox("Tipologia di pannello", list(pannello_map.keys()), index=0)
+    pannello_val = pannello_map[pannello_label]
+
+    # Step 3: n. pannelli
+    n_pannelli = st.number_input("Numero pannelli", min_value=1, step=1, value=1)
+
+    # Step 4: n. file
+    n_file = st.number_input("Numero file", min_value=1, step=1, value=1)
+
+    # Step 5: centralina
+    centr_label = st.selectbox("Tipo di centralina", ["SBMTDC_V5", "SBLTDC_V3"], index=0)
+    centr_val = "SBMTDC_V5" if centr_label == "SBMTDC_V5" else "SBLTDC_V3"
+
+    # Step 6: volume minimo consigliato (formula richiesta: area_totale * 60)
+    area = 2.35 if pannello_val == "ETASUN25" else 1.87
+    superficie_tot = area * n_pannelli
+    volume_consigliato = superficie_tot * 60  # L
+    st.info(
+        f"Superficie totale: **{superficie_tot:.2f} m²**  •  "
+        f"Volume minimo consigliato: **{volume_consigliato:.0f} L**"
+    )
+
+    cfg_input_sol = ConfigSolareInput(
+        tetto=tetto_val,
+        pannello=pannello_val,
+        n_pannelli=int(n_pannelli),
+        n_file=int(n_file),
+        centralina=centr_val
+    )
+
+# -------------------------------------------------------
+# Utils: sconti + riepilogo + Order Entry (INVARIATI)
+# -------------------------------------------------------
 def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     p = float(prezzo)
     for s in sconti:
@@ -170,12 +224,11 @@ def show_summary_and_order_entry(rows: list, total: float):
         payload = "\n".join(lines)
 
         st.subheader("Dati per Order Entry")
-        # Blocco copiabile (ha il pulsante copia automatico)
-        st.code(payload, language=None)
+        st.code(payload, language=None)  # blocco copiabile
 
-# =========================
-# GENERA PREVENTIVO (originale + aggiunta salvataggio stato)
-# =========================
+# -------------------------------------------------------
+# GENERA PREVENTIVO (stessa logica consolidata + integrazioni)
+# -------------------------------------------------------
 if st.button("Genera preventivo"):
     with open("embeddings.pkl", "rb") as f:
         data = pickle.load(f)
@@ -193,13 +246,14 @@ if st.button("Genera preventivo"):
     righe_tabella = []
     totale_configurazione = 0.0
 
-    # ======= Parte 1: RICERCA TESTUALE (identica) =======
+    # ======= Parte 1: RICERCA TESTUALE (INVARIATA) =======
     descrizioni_singole = [s.strip() for s in (descrizione or "").split("+") if s.strip()]
 
     for singola in descrizioni_singole:
         query = singola.lower()
 
         quantita = 1
+
         quant_match = re.search(r"^\s*(\d+)\s*[xX]\s*", query)
         if quant_match:
             quantita = int(quant_match.group(1))
@@ -264,10 +318,10 @@ if st.button("Genera preventivo"):
             "Prezzo totale": f"{prezzo_totale:,.2f} €"
         })
 
-    # ======= Parte 2: DISTINTA dal CONFIGURATORE (se usato) =======
-    if cfg_input is not None:
+    # ======= Parte 2: DISTINTA dal CONFIGURATORE MK (INVARIATA) =======
+    if cfg_input_mk is not None:
         try:
-            distinta = genera_distinta(cfg_input)   # List[LineItem] (code,name,qty)
+            distinta = genera_distinta_mk(cfg_input_mk)   # List[LineItem] (code,name,qty)
             for item in distinta:
                 rec = df[df["Codice"].astype(str) == str(item.code)]
                 if rec.empty:
@@ -300,16 +354,54 @@ if st.button("Genera preventivo"):
                     "Prezzo totale": f"{prezzo_totale:,.2f} €"
                 })
         except Exception as e:
-            st.error(f"Configuratore: {e}")
+            st.error(f"Configuratore MK: {e}")
 
-    # ======= Riepilogo finale + salvataggio stato =======
+    # ======= Parte 3: DISTINTA dal CONFIGURATORE SOLARE (AGGIUNTA) =======
+    if cfg_input_sol is not None:
+        try:
+            distinta_sol = genera_distinta_solare(cfg_input_sol)   # List[LineItem]
+            for item in distinta_sol:
+                rec = df[df["Codice"].astype(str) == str(item.code)]
+                if rec.empty:
+                    st.warning(f"Codice non trovato in listino (solare): {item.code} ({item.name})")
+                    continue
+                prodotto_row = rec.iloc[0]
+
+                prezzo_unitario = float(prodotto_row["Prezzo di listino"])
+                if mostra_netto:
+                    for sconto in sconti:
+                        prezzo_unitario *= (1 - sconto / 100)
+
+                prezzo_totale = prezzo_unitario * item.qty
+                totale_configurazione += prezzo_totale
+
+                st.markdown(f"""
+                🧾 **{prodotto_row['Prodotto']}**  
+                **Codice:** `{prodotto_row['Codice']}`  
+                **Quantità:** {item.qty}  
+                **Prezzo unitario:** {prezzo_unitario:,.2f} € ({'netto' if mostra_netto else 'listino'})  
+                **Prezzo totale:** {prezzo_totale:,.2f} €  
+                **Descrizione:** {prodotto_row['Descrizione']}  
+                """)
+
+                righe_tabella.append({
+                    "Codice": prodotto_row["Codice"],
+                    "Prodotto": prodotto_row["Prodotto"],
+                    "Quantità": item.qty,
+                    "Prezzo unitario": f"{prezzo_unitario:,.2f} €",
+                    "Prezzo totale": f"{prezzo_totale:,.2f} €"
+                })
+        except Exception as e:
+            st.error(f"Configuratore solare: {e}")
+
+    # ======= Riepilogo finale + salvataggio stato (INVARIATO) =======
     st.session_state["output_rows"] = righe_tabella
     st.session_state["totale_conf"] = float(totale_configurazione)
     show_summary_and_order_entry(righe_tabella, totale_configurazione)
     st.session_state["rendered_this_run"] = True
 
-# =========================
-# RENDER persistente (per far funzionare il bottone dopo il rerun)
-# =========================
+# -------------------------------------------------------
+# RENDER persistente (per far funzionare Order Entry post-rerun)
+# -------------------------------------------------------
 if st.session_state.get("output_rows") and not st.session_state.get("rendered_this_run"):
     show_summary_and_order_entry(st.session_state["output_rows"], st.session_state["totale_conf"])
