@@ -25,7 +25,7 @@ st.title("Baltur Prevendita AI")
 # Stato applicazione
 # -------------------------------------------------------
 if "output_rows" not in st.session_state:
-    st.session_state["output_rows"] = []  # righe visibili nella tabella
+    st.session_state["output_rows"] = []
 if "totale_conf" not in st.session_state:
     st.session_state["totale_conf"] = 0.0
 # flag per evitare doppia stampa nella stessa esecuzione
@@ -34,7 +34,7 @@ st.session_state["rendered_this_run"] = False
 if "show_solar" not in st.session_state:
     st.session_state["show_solar"] = False
 
-# stati per le nuove funzioni (nessuna logica toccata)
+# stati per le nuove funzioni (UI, nessuna logica toccata)
 st.session_state.setdefault("details_open", False)         # toggle Dettagli
 st.session_state.setdefault("qty_edit_mode", False)        # modalità Modifica quantità
 st.session_state.setdefault("qty_edit_values", [])         # valori temporanei quantità
@@ -204,6 +204,35 @@ if st.session_state["show_solar"]:
     )
 
 # -------------------------------------------------------
+# Helpers tabella Markdown (no indice, nessun pacchetto extra)
+# -------------------------------------------------------
+VISIBLE_COLS = ["Codice", "Prodotto", "Quantità", "Prezzo unitario", "Prezzo totale"]
+
+def _escape_md(text: str) -> str:
+    if text is None:
+        return ""
+    # evita rotture della tabella Markdown
+    return str(text).replace("|", "\\|")
+
+def rows_to_markdown_table(rows: list[dict]) -> str:
+    """Crea una tabella Markdown senza usare pandas.to_markdown (niente dipendenze)."""
+    headers = VISIBLE_COLS
+    # intestazione
+    md = "| " + " | ".join(headers) + " |\n"
+    md += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+    # righe
+    for r in rows:
+        cells = [
+            _escape_md(r.get("Codice", "")),
+            _escape_md(r.get("Prodotto", "")),
+            str(int(r.get("Quantità", 0))),
+            _escape_md(r.get("Prezzo unitario", "")),
+            _escape_md(r.get("Prezzo totale", "")),
+        ]
+        md += "| " + " | ".join(cells) + " |\n"
+    return md
+
+# -------------------------------------------------------
 # Utils: sconti + riepilogo + azioni sotto tabella
 # -------------------------------------------------------
 def applica_sconti(prezzo: float, sconti: list[float]) -> float:
@@ -213,16 +242,15 @@ def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     return p
 
 def show_summary_and_order_entry(rows: list, total: float):
-    """Mostra la tabella come prima, + i bottoni richiesti sotto.
-       Usa st.session_state per Dettagli / Modifica quantità / Ricalcola / Copia tabella.
-    """
+    """Mostra la tabella (Markdown, senza indice) + bottoni: Order Entry, Copia tabella, Modifica quantità, Dettagli."""
     if not rows:
         return
 
-    # --- Tabella (come prima) ---
     st.subheader("📊 Riepilogo preventivo")
-    df_tabella = pd.DataFrame(rows)
-    st.table(df_tabella)  # tabella statica, nessuna toolbar, nessun indice extra
+
+    # ---- Tabella Markdown (niente indice, nessuna toolbar/icone, no scroll interno) ----
+    md_table = rows_to_markdown_table(rows)
+    st.markdown(md_table)
 
     # Totale sotto la tabella
     st.markdown(f"**Totale configurazione:** {total:,.2f} €")
@@ -231,7 +259,7 @@ def show_summary_and_order_entry(rows: list, total: float):
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        # Dati per Order Entry (immutate, ma con quantità aggiornate se ricalcolate)
+        # Dati per Order Entry
         if st.button("📋 Dati per Order Entry"):
             lines = []
             for r in st.session_state["output_rows"]:
@@ -243,9 +271,9 @@ def show_summary_and_order_entry(rows: list, total: float):
             st.code(payload, language=None)
 
     with c2:
-        # Copia tabella in formato Markdown
+        # Copia tabella (Markdown) – usa lo stesso generatore, nessuna dipendenza esterna
         if st.button("📋 Copia tabella (Markdown)"):
-            md = pd.DataFrame(st.session_state["output_rows"]).to_markdown(index=False)
+            md = rows_to_markdown_table(st.session_state["output_rows"])
             st.subheader("Tabella (Markdown)")
             st.code(md, language=None)
 
@@ -253,7 +281,6 @@ def show_summary_and_order_entry(rows: list, total: float):
         # Modifica quantità: apre mini-form
         if st.button("✏️ Modifica quantità"):
             st.session_state["qty_edit_mode"] = True
-            # prep valori iniziali
             st.session_state["qty_edit_values"] = [int(r.get("Quantità", 0)) for r in st.session_state["output_rows"]]
 
     with c4:
