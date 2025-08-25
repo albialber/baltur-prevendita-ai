@@ -19,7 +19,7 @@ st.set_page_config(page_title="Baltur PREVENDITA AI", layout="centered")
 st.image("baltur_logo.png", width=300)
 
 # Titolo senza emoticon
-st.title("Baltur Prevendita AI")
+st.title("Baltur Prevendita")
 
 # -------------------------------------------------------
 # Stato applicazione
@@ -242,7 +242,7 @@ def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     return p
 
 def show_summary_and_order_entry(rows: list, total: float):
-    """Mostra la tabella (Markdown, senza indice) + bottoni: Order Entry, Copia tabella, Modifica quantità, Dettagli."""
+    """Mostra la tabella (Markdown, senza indice) + bottoni: Order Entry, Modifica quantità, Dettagli."""
     if not rows:
         return
 
@@ -256,7 +256,7 @@ def show_summary_and_order_entry(rows: list, total: float):
     st.markdown(f"**Totale configurazione:** {total:,.2f} €")
 
     # --- Pulsanti sotto tabella ---
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
 
     with c1:
         # Dati per Order Entry
@@ -271,19 +271,12 @@ def show_summary_and_order_entry(rows: list, total: float):
             st.code(payload, language=None)
 
     with c2:
-        # Copia tabella (Markdown) – usa lo stesso generatore, nessuna dipendenza esterna
-        if st.button("📋 Copia tabella (Markdown)"):
-            md = rows_to_markdown_table(st.session_state["output_rows"])
-            st.subheader("Tabella (Markdown)")
-            st.code(md, language=None)
-
-    with c3:
         # Modifica quantità: apre mini-form
         if st.button("✏️ Modifica quantità"):
             st.session_state["qty_edit_mode"] = True
             st.session_state["qty_edit_values"] = [int(r.get("Quantità", 0)) for r in st.session_state["output_rows"]]
 
-    with c4:
+    with c3:
         # Dettagli toggle
         if st.button("🔎 Dettagli"):
             st.session_state["details_open"] = not st.session_state["details_open"]
@@ -346,7 +339,12 @@ def show_summary_and_order_entry(rows: list, total: float):
                 st.session_state["output_rows"] = updated_rows
                 st.session_state["totale_conf"] = float(new_total)
                 st.session_state["qty_edit_mode"] = False
+
+                # Feedback + RENDER immediato del nuovo riepilogo completo
                 st.success(f"Ricalcolo completato. Nuovo totale: {new_total:,.2f} €")
+                st.markdown("### Riepilogo aggiornato")
+                st.markdown(rows_to_markdown_table(st.session_state["output_rows"]))
+                st.markdown(f"**Totale configurazione:** {st.session_state['totale_conf']:,.2f} €")
 
         with c_cancel:
             if st.button("Annulla modifiche"):
