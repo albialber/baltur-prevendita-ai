@@ -25,7 +25,7 @@ st.title("Baltur Prevendita AI")
 # Stato applicazione
 # -------------------------------------------------------
 if "output_rows" not in st.session_state:
-    st.session_state["output_rows"] = []
+    st.session_state["output_rows"] = []  # righe visibili nella tabella
 if "totale_conf" not in st.session_state:
     st.session_state["totale_conf"] = 0.0
 # flag per evitare doppia stampa nella stessa esecuzione
@@ -33,6 +33,14 @@ st.session_state["rendered_this_run"] = False
 # visibilità configuratore solare
 if "show_solar" not in st.session_state:
     st.session_state["show_solar"] = False
+
+# stati per le nuove funzioni (nessuna logica toccata)
+st.session_state.setdefault("details_open", False)         # toggle Dettagli
+st.session_state.setdefault("qty_edit_mode", False)        # modalità Modifica quantità
+st.session_state.setdefault("qty_edit_values", [])         # valori temporanei quantità
+st.session_state.setdefault("descrizioni_map", {})         # codice -> descrizione
+st.session_state.setdefault("unit_price_map", {})          # codice -> prezzo unitario raw (già scontato se serve)
+st.session_state.setdefault("prodotto_map", {})            # codice -> nome prodotto
 
 # -------------------------------------------------------
 # SEZIONE ORIGINALE: prompt testuale + sconti (INVARIATA)
@@ -196,7 +204,7 @@ if st.session_state["show_solar"]:
     )
 
 # -------------------------------------------------------
-# Utils: sconti + riepilogo + Order Entry (INVARIATI)
+# Utils: sconti + riepilogo + azioni sotto tabella
 # -------------------------------------------------------
 def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     p = float(prezzo)
@@ -205,26 +213,118 @@ def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     return p
 
 def show_summary_and_order_entry(rows: list, total: float):
-    """Mostra riepilogo + bottone 'Dati per Order Entry' sotto al totale."""
+    """Mostra la tabella come prima, + i bottoni richiesti sotto.
+       Usa st.session_state per Dettagli / Modifica quantità / Ricalcola / Copia tabella.
+    """
     if not rows:
         return
+
+    # --- Tabella (come prima) ---
     st.subheader("📊 Riepilogo preventivo")
     df_tabella = pd.DataFrame(rows)
-    st.table(df_tabella)
+    st.table(df_tabella)  # tabella statica, nessuna toolbar, nessun indice extra
+
+    # Totale sotto la tabella
     st.markdown(f"**Totale configurazione:** {total:,.2f} €")
 
-    # Bottone richiesto: Dati per Order Entry
-    if st.button("📋 Dati per Order Entry"):
-        # Costruisci stringa: CODICE;QUANTITA (una riga per riga tabella)
-        lines = []
-        for r in rows:
-            codice = str(r.get("Codice", "")).strip()
-            quantita = r.get("Quantità", 0)
-            lines.append(f"{codice};{quantita}")
-        payload = "\n".join(lines)
+    # --- Pulsanti sotto tabella ---
+    c1, c2, c3, c4 = st.columns(4)
 
-        st.subheader("Dati per Order Entry")
-        st.code(payload, language=None)  # blocco copiabile
+    with c1:
+        # Dati per Order Entry (immutate, ma con quantità aggiornate se ricalcolate)
+        if st.button("📋 Dati per Order Entry"):
+            lines = []
+            for r in st.session_state["output_rows"]:
+                codice = str(r.get("Codice", "")).strip()
+                quantita = int(r.get("Quantità", 0))
+                lines.append(f"{codice};{quantita}")
+            payload = "\n".join(lines)
+            st.subheader("Dati per Order Entry")
+            st.code(payload, language=None)
+
+    with c2:
+        # Copia tabella in formato Markdown
+        if st.button("📋 Copia tabella (Markdown)"):
+            md = pd.DataFrame(st.session_state["output_rows"]).to_markdown(index=False)
+            st.subheader("Tabella (Markdown)")
+            st.code(md, language=None)
+
+    with c3:
+        # Modifica quantità: apre mini-form
+        if st.button("✏️ Modifica quantità"):
+            st.session_state["qty_edit_mode"] = True
+            # prep valori iniziali
+            st.session_state["qty_edit_values"] = [int(r.get("Quantità", 0)) for r in st.session_state["output_rows"]]
+
+    with c4:
+        # Dettagli toggle
+        if st.button("🔎 Dettagli"):
+            st.session_state["details_open"] = not st.session_state["details_open"]
+
+    # --- Dettagli (solo se richiesti) ---
+    if st.session_state["details_open"]:
+        st.markdown("### Dettagli voci")
+        for r in st.session_state["output_rows"]:
+            codice = str(r.get("Codice", ""))
+            nome = st.session_state["prodotto_map"].get(codice, r.get("Prodotto", ""))
+            descr = st.session_state["descrizioni_map"].get(codice, "")
+            st.markdown(
+                f"**{nome}**  \n"
+                f"**Codice:** `{codice}`  \n"
+                f"**Quantità:** {int(r.get('Quantità', 0))}  \n"
+                f"**Descrizione:** {descr}"
+            )
+
+    # --- Modifica quantità (form leggero + ricalcolo) ---
+    if st.session_state["qty_edit_mode"]:
+        st.markdown("### Modifica quantità")
+        new_qty = []
+        for i, r in enumerate(st.session_state["output_rows"]):
+            codice = str(r.get("Codice", ""))
+            nome = r.get("Prodotto", "")
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.write(f"**{nome}**  —  `{codice}`")
+            with col2:
+                val = st.number_input(
+                    "Quantità", min_value=0, step=1,
+                    value=int(st.session_state["qty_edit_values"][i]),
+                    key=f"qty_input_{i}"
+                )
+                new_qty.append(int(val))
+
+        st.caption("Quando hai finito, clicca **Ricalcola** per aggiornare i totali.")
+
+        c_ok, c_cancel = st.columns([1,1])
+        with c_ok:
+            if st.button("♻️ Ricalcola"):
+                # Aggiorna righe con le nuove quantità
+                updated_rows = []
+                new_total = 0.0
+                for i, r in enumerate(st.session_state["output_rows"]):
+                    codice = str(r.get("Codice", ""))
+                    unit_raw = float(st.session_state["unit_price_map"].get(codice, 0.0))
+                    q = int(new_qty[i])
+                    row_total = unit_raw * q
+                    updated_rows.append({
+                        "Codice": codice,
+                        "Prodotto": r.get("Prodotto", ""),
+                        "Quantità": q,
+                        "Prezzo unitario": f"{unit_raw:,.2f} €",
+                        "Prezzo totale": f"{row_total:,.2f} €",
+                    })
+                    new_total += row_total
+
+                # Salva stato aggiornato
+                st.session_state["output_rows"] = updated_rows
+                st.session_state["totale_conf"] = float(new_total)
+                st.session_state["qty_edit_mode"] = False
+                st.success(f"Ricalcolo completato. Nuovo totale: {new_total:,.2f} €")
+
+        with c_cancel:
+            if st.button("Annulla modifiche"):
+                st.session_state["qty_edit_mode"] = False
+                st.session_state["qty_edit_values"] = []
 
 # -------------------------------------------------------
 # GENERA PREVENTIVO (stessa logica consolidata + integrazioni)
@@ -245,6 +345,11 @@ if st.button("Genera preventivo"):
 
     righe_tabella = []
     totale_configurazione = 0.0
+
+    # Reset mappe per dettagli e ricalcolo
+    st.session_state["descrizioni_map"] = {}
+    st.session_state["unit_price_map"] = {}
+    st.session_state["prodotto_map"] = {}
 
     # ======= Parte 1: RICERCA TESTUALE (INVARIATA) =======
     descrizioni_singole = [s.strip() for s in (descrizione or "").split("+") if s.strip()]
@@ -301,15 +406,13 @@ if st.button("Genera preventivo"):
         prezzo_totale = prezzo_unitario * quantita
         totale_configurazione += prezzo_totale
 
-        st.markdown(f"""
-        🧾 **{prodotto['Prodotto']}**  
-        **Codice:** `{prodotto['Codice']}`  
-        **Quantità:** {quantita}  
-        **Prezzo unitario:** {prezzo_unitario:,.2f} € ({'netto' if mostra_netto else 'listino'})  
-        **Prezzo totale:** {prezzo_totale:,.2f} €  
-        **Descrizione:** {prodotto['Descrizione']}  
-        """)
+        # memorizza per dettagli e ricalcolo
+        codice = str(prodotto["Codice"])
+        st.session_state["descrizioni_map"][codice] = str(prodotto["Descrizione"])
+        st.session_state["unit_price_map"][codice] = float(prezzo_unitario)
+        st.session_state["prodotto_map"][codice] = str(prodotto["Prodotto"])
 
+        # (niente testo lungo qui: lo mostreremo in "Dettagli")
         righe_tabella.append({
             "Codice": prodotto["Codice"],
             "Prodotto": prodotto["Prodotto"],
@@ -337,14 +440,11 @@ if st.button("Genera preventivo"):
                 prezzo_totale = prezzo_unitario * item.qty
                 totale_configurazione += prezzo_totale
 
-                st.markdown(f"""
-                🧾 **{prodotto_row['Prodotto']}**  
-                **Codice:** `{prodotto_row['Codice']}`  
-                **Quantità:** {item.qty}  
-                **Prezzo unitario:** {prezzo_unitario:,.2f} € ({'netto' if mostra_netto else 'listino'})  
-                **Prezzo totale:** {prezzo_totale:,.2f} €  
-                **Descrizione:** {prodotto_row['Descrizione']}  
-                """)
+                # memorizza per dettagli e ricalcolo
+                codice = str(prodotto_row["Codice"])
+                st.session_state["descrizioni_map"][codice] = str(prodotto_row["Descrizione"])
+                st.session_state["unit_price_map"][codice] = float(prezzo_unitario)
+                st.session_state["prodotto_map"][codice] = str(prodotto_row["Prodotto"])
 
                 righe_tabella.append({
                     "Codice": prodotto_row["Codice"],
@@ -375,14 +475,11 @@ if st.button("Genera preventivo"):
                 prezzo_totale = prezzo_unitario * item.qty
                 totale_configurazione += prezzo_totale
 
-                st.markdown(f"""
-                🧾 **{prodotto_row['Prodotto']}**  
-                **Codice:** `{prodotto_row['Codice']}`  
-                **Quantità:** {item.qty}  
-                **Prezzo unitario:** {prezzo_unitario:,.2f} € ({'netto' if mostra_netto else 'listino'})  
-                **Prezzo totale:** {prezzo_totale:,.2f} €  
-                **Descrizione:** {prodotto_row['Descrizione']}  
-                """)
+                # memorizza per dettagli e ricalcolo
+                codice = str(prodotto_row["Codice"])
+                st.session_state["descrizioni_map"][codice] = str(prodotto_row["Descrizione"])
+                st.session_state["unit_price_map"][codice] = float(prezzo_unitario)
+                st.session_state["prodotto_map"][codice] = str(prodotto_row["Prodotto"])
 
                 righe_tabella.append({
                     "Codice": prodotto_row["Codice"],
@@ -394,9 +491,15 @@ if st.button("Genera preventivo"):
         except Exception as e:
             st.error(f"Configuratore solare: {e}")
 
-    # ======= Riepilogo finale + salvataggio stato (INVARIATO) =======
+    # ======= Riepilogo finale + salvataggio stato (INVARIATO + nuovi stati UI) =======
     st.session_state["output_rows"] = righe_tabella
     st.session_state["totale_conf"] = float(totale_configurazione)
+
+    # reset toggle/mod edit per nuova esecuzione
+    st.session_state["details_open"] = False
+    st.session_state["qty_edit_mode"] = False
+    st.session_state["qty_edit_values"] = [int(r["Quantità"]) for r in righe_tabella]
+
     show_summary_and_order_entry(righe_tabella, totale_configurazione)
     st.session_state["rendered_this_run"] = True
 
