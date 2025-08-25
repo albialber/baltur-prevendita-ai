@@ -24,23 +24,16 @@ st.title("Baltur Prevendita AI")
 # -------------------------------------------------------
 # Stato applicazione
 # -------------------------------------------------------
-if "output_rows" not in st.session_state:
-    st.session_state["output_rows"] = []  # lista dizionari visibili in tabella
-if "output_rows_internal" not in st.session_state:
-    # con colonne ausiliarie per ricalcolo (es. UnitPriceRaw, Descrizione)
-    st.session_state["output_rows_internal"] = []
-if "totale_conf" not in st.session_state:
-    st.session_state["totale_conf"] = 0.0
-if "rendered_this_run" not in st.session_state:
-    st.session_state["rendered_this_run"] = False
-if "show_solar" not in st.session_state:
-    st.session_state["show_solar"] = False
-if "show_details" not in st.session_state:
-    st.session_state["show_details"] = False
-if "df_current_full" not in st.session_state:
-    st.session_state["df_current_full"] = None  # dataframe completo (incluse colonne "nascoste")
-if "df_original_qty" not in st.session_state:
-    st.session_state["df_original_qty"] = None  # lista quantità originali (per abilitare Ricalcola)
+ss = st.session_state
+ss.setdefault("output_rows", [])             # visibile (Codice, Prodotto, Quantità, Prezzo unitario, Prezzo totale)
+ss.setdefault("output_rows_internal", [])    # include UnitPriceRaw e Descrizione
+ss.setdefault("totale_conf", 0.0)
+ss.setdefault("rendered_this_run", False)
+ss.setdefault("show_solar", False)
+ss.setdefault("show_details", False)
+ss.setdefault("df_current_full", None)       # DataFrame completo corrente
+ss.setdefault("qty_edit_mode", False)        # modalità modifica quantità
+ss.setdefault("qty_edit_values", [])         # valori temporanei per il form quantità
 
 # -------------------------------------------------------
 # SEZIONE ORIGINALE: prompt testuale + sconti (INVARIATA)
@@ -162,10 +155,10 @@ st.subheader("☀️ Configuratore solare termico")
 
 # mostra gli step solo se l'utente clicca il bottone
 if st.button("Apri configuratore solare termico"):
-    st.session_state["show_solar"] = True
+    ss["show_solar"] = True
 
 cfg_input_sol = None
-if st.session_state["show_solar"]:
+if ss["show_solar"]:
     # Step 1: tipologia tetto
     tetto_map = {"Tetto inclinato a coppi": "INCLINATO_COPPI", "Tetto piano": "PIANO"}
     tetto_label = st.selectbox("Tipologia di tetto", list(tetto_map.keys()), index=0)
@@ -186,7 +179,7 @@ if st.session_state["show_solar"]:
     centr_label = st.selectbox("Tipo di centralina", ["SBMTDC_V5", "SBLTDC_V3"], index=0)
     centr_val = "SBMTDC_V5" if centr_label == "SBMTDC_V5" else "SBLTDC_V3"
 
-    # Step 6: volume minimo consigliato (formula richiesta: area_totale * 60)
+    # Step 6: volume minimo consigliato (area_totale * 60)
     area = 2.35 if pannello_val == "ETASUN25" else 1.87
     superficie_tot = area * n_pannelli
     volume_consigliato = superficie_tot * 60  # L
@@ -204,7 +197,7 @@ if st.session_state["show_solar"]:
     )
 
 # -------------------------------------------------------
-# Utils: sconti + riepilogo + Order Entry
+# Utils: sconti + helpers tabella/azioni
 # -------------------------------------------------------
 def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     p = float(prezzo)
@@ -213,91 +206,54 @@ def applica_sconti(prezzo: float, sconti: list[float]) -> float:
     return p
 
 def df_to_markdown_table(df: pd.DataFrame) -> str:
-    # converte una tabella in markdown pipe-friendly
     return df.to_markdown(index=False)
 
-def show_summary_table_and_actions(df_full: pd.DataFrame, total: float):
-    """Mostra tabella (editabile su Quantità) + azioni: ricalcola, copia tabella, dati order entry, dettagli.
-       df_full deve contenere anche le colonne 'UnitPriceRaw' e 'Descrizione' (non mostrate).
-    """
+def render_output_table_and_actions(df_full: pd.DataFrame, total: float):
+    """Mostra tabella statica completa e i pulsanti sotto (Order Entry, Copia tabella, Modifica quantità, Dettagli)."""
     if df_full is None or df_full.empty:
         return
 
     st.subheader("📊 Riepilogo preventivo")
 
-    # Vista per l'utente (solo colonne visibili)
     visible_cols = ["Codice", "Prodotto", "Quantità", "Prezzo unitario", "Prezzo totale"]
     df_view = df_full[visible_cols].copy()
 
-    # Editor: permetti modifica Quantità, nascondi indice
-    edited = st.data_editor(
-        df_view,
-        hide_index=True,
-        use_container_width=True,
-        key="out_table_editor",
-        disabled=["Codice", "Prodotto", "Prezzo unitario", "Prezzo totale"],  # solo Quantità editabile
-    )
+    # Tabella statica senza toolbar/scroll interni
+    st.table(df_view)
 
-    # Rileva modifiche alle quantità
-    orig_qty = st.session_state.get("df_original_qty")
-    current_qty = edited["Quantità"].tolist()
-    qty_modified = (orig_qty is not None) and (current_qty != orig_qty)
-
-    # Totale corrente visualizzato
+    # Totale (subito sotto la tabella)
     st.markdown(f"**Totale configurazione:** {total:,.2f} €")
 
-    # Azioni sotto tabella
-    c1, c2, c3 = st.columns([1,1,1])
+    # Pulsanti sotto tabella
+    c1, c2, c3, c4 = st.columns([1,1,1,1])
 
     with c1:
-        # Ricalcolo abilitato solo se quantità modificate
-        if st.button("♻️ Ricalcola", disabled=not qty_modified):
-            df_new_view = edited.copy()
-            # Ricostruisci df_full nuovo fondendo quantità aggiornate con dati tecnici originali
-            df_old_full = st.session_state["df_current_full"].copy()
-            df_old_full["Quantità"] = df_new_view["Quantità"].values  # mantieni stesso ordine
-            # Ricalcola totali riga e totale
-            new_total = 0.0
-            for i in range(len(df_old_full)):
-                unit_raw = float(df_old_full.loc[i, "UnitPriceRaw"])
-                q = int(df_old_full.loc[i, "Quantità"])
-                row_total = unit_raw * q
-                df_old_full.loc[i, "Prezzo unitario"] = f"{unit_raw:,.2f} €"
-                df_old_full.loc[i, "Prezzo totale"] = f"{row_total:,.2f} €"
-                new_total += row_total
-
-            # Aggiorna stato globale (per Order Entry e persistente)
-            st.session_state["df_current_full"] = df_old_full
-            st.session_state["df_original_qty"] = df_old_full["Quantità"].tolist()
-            st.session_state["output_rows_internal"] = df_old_full.to_dict(orient="records")
-            st.session_state["output_rows"] = df_old_full[visible_cols].to_dict(orient="records")
-            st.session_state["totale_conf"] = float(new_total)
-
-            st.success(f"Ricalcolo completato. Nuovo totale: {new_total:,.2f} €")
-
-    with c2:
-        if st.button("📋 Copia tabella (Markdown)"):
-            df_for_copy = st.session_state.get("df_current_full", df_full)
-            md = df_to_markdown_table(df_for_copy[visible_cols])
-            st.subheader("Tabella (Markdown)")
-            st.code(md, language=None)
-
-    with c3:
         if st.button("📋 Dati per Order Entry"):
-            df_for_copy = st.session_state.get("df_current_full", df_full)
-            lines = [f"{str(r['Codice']).strip()};{int(r['Quantità'])}" for _, r in df_for_copy[visible_cols].iterrows()]
+            lines = [f"{str(r['Codice']).strip()};{int(r['Quantità'])}" for _, r in df_full.iterrows()]
             payload = "\n".join(lines)
             st.subheader("Dati per Order Entry")
             st.code(payload, language=None)
 
-    # Dettagli (toggle)
-    if st.button("🔎 Dettagli"):
-        st.session_state["show_details"] = not st.session_state.get("show_details", False)
+    with c2:
+        if st.button("📋 Copia tabella (Markdown)"):
+            md = df_to_markdown_table(df_view)
+            st.subheader("Tabella (Markdown)")
+            st.code(md, language=None)
 
-    if st.session_state.get("show_details"):
+    with c3:
+        if st.button("✏️ Modifica quantità"):
+            # entra in modalità edit: inizializza valori
+            ss["qty_edit_mode"] = True
+            ss["qty_edit_values"] = df_full["Quantità"].astype(int).tolist()
+
+    with c4:
+        if st.button("🔎 Dettagli"):
+            ss["show_details"] = not ss.get("show_details", False)
+
+    # Dettagli (solo se richiesti)
+    if ss.get("show_details", False):
         st.markdown("### Dettagli voci")
-        df_for_det = st.session_state.get("df_current_full", df_full)
-        for _, r in df_for_det.iterrows():
+        for _, r in df_full.iterrows():
             st.markdown(
                 f"**{r['Prodotto']}**  \n"
                 f"**Codice:** `{r['Codice']}`  \n"
@@ -305,8 +261,57 @@ def show_summary_table_and_actions(df_full: pd.DataFrame, total: float):
                 f"**Descrizione:** {r.get('Descrizione','')}"
             )
 
+    # Modalità modifica quantità (form leggero, senza editor Tabella)
+    if ss.get("qty_edit_mode", False):
+        st.markdown("### Modifica quantità")
+        new_qty = []
+        for i, (_, row) in enumerate(df_full.iterrows()):
+            c, p = row["Codice"], row["Prodotto"]
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.write(f"**{p}**  —  `{c}`")
+            with col2:
+                val = st.number_input(
+                    "Quantità",
+                    min_value=0,
+                    step=1,
+                    value=int(ss["qty_edit_values"][i]) if i < len(ss["qty_edit_values"]) else int(row["Quantità"]),
+                    key=f"qty_input_{i}"
+                )
+                new_qty.append(int(val))
+        st.caption("Quando hai finito le modifiche, clicca **Ricalcola** per aggiornare i totali.")
+
+        c_ok, c_cancel = st.columns([1,1])
+        with c_ok:
+            if st.button("♻️ Ricalcola"):
+                # Applica le nuove quantità
+                df_new = df_full.copy()
+                df_new["Quantità"] = new_qty
+                # Ricalcola importi
+                new_total = 0.0
+                for i in range(len(df_new)):
+                    unit_raw = float(df_new.loc[i, "UnitPriceRaw"])
+                    q = int(df_new.loc[i, "Quantità"])
+                    row_total = unit_raw * q
+                    df_new.loc[i, "Prezzo unitario"] = f"{unit_raw:,.2f} €"
+                    df_new.loc[i, "Prezzo totale"] = f"{row_total:,.2f} €"
+                    new_total += row_total
+
+                # Aggiorna stato globale
+                ss["df_current_full"] = df_new
+                ss["output_rows_internal"] = df_new.to_dict(orient="records")
+                ss["output_rows"] = df_new[visible_cols].to_dict(orient="records")
+                ss["totale_conf"] = float(new_total)
+                ss["qty_edit_mode"] = False
+                st.success(f"Ricalcolo completato. Nuovo totale: {new_total:,.2f} €")
+
+        with c_cancel:
+            if st.button("Annulla modifiche"):
+                ss["qty_edit_mode"] = False
+                ss["qty_edit_values"] = []
+
 # -------------------------------------------------------
-# GENERA PREVENTIVO (stessa logica consolidata + integrazioni)
+# GENERA PREVENTIVO (logiche consolidate + integrazioni)
 # -------------------------------------------------------
 if st.button("Genera preventivo"):
     with open("embeddings.pkl", "rb") as f:
@@ -322,16 +327,14 @@ if st.button("Genera preventivo"):
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
-    righe_tabella = []               # visivo (senza colonne tecniche)
-    righe_tabella_internal = []      # con UnitPriceRaw e Descrizione
+    righe_tabella_internal = []   # con UnitPriceRaw e Descrizione
     totale_configurazione = 0.0
 
-    # ======= Parte 1: RICERCA TESTUALE (logica invariata) =======
+    # ======= Parte 1: RICERCA TESTUALE (immutata) =======
     descrizioni_singole = [s.strip() for s in (descrizione or "").split("+") if s.strip()]
 
     for singola in descrizioni_singole:
         query = singola.lower()
-
         quantita = 1
 
         quant_match = re.search(r"^\s*(\d+)\s*[xX]\s*", query)
@@ -373,7 +376,6 @@ if st.button("Genera preventivo"):
 
         prodotto = df_filtrato.iloc[idx]
         unit_raw = float(prodotto["Prezzo di listino"])
-
         if mostra_netto:
             for sconto in sconti:
                 unit_raw *= (1 - sconto / 100)
@@ -381,7 +383,7 @@ if st.button("Genera preventivo"):
         row_total = unit_raw * quantita
         totale_configurazione += row_total
 
-        vis_full = {
+        righe_tabella_internal.append({
             "Codice": str(prodotto["Codice"]),
             "Prodotto": str(prodotto["Prodotto"]),
             "Quantità": int(quantita),
@@ -389,11 +391,9 @@ if st.button("Genera preventivo"):
             "Prezzo totale": f"{row_total:,.2f} €",
             "UnitPriceRaw": float(unit_raw),
             "Descrizione": str(prodotto["Descrizione"]),
-        }
-        righe_tabella_internal.append(vis_full)
-        righe_tabella.append({k: vis_full[k] for k in ["Codice","Prodotto","Quantità","Prezzo unitario","Prezzo totale"]})
+        })
 
-    # ======= Parte 2: DISTINTA dal CONFIGURATORE MK (logica invariata) =======
+    # ======= Parte 2: DISTINTA dal CONFIGURATORE MK (immutata) =======
     if cfg_input_mk is not None:
         try:
             distinta = genera_distinta_mk(cfg_input_mk)   # List[LineItem]
@@ -412,7 +412,7 @@ if st.button("Genera preventivo"):
                 row_total = unit_raw * item.qty
                 totale_configurazione += row_total
 
-                vis_full = {
+                righe_tabella_internal.append({
                     "Codice": str(prodotto_row["Codice"]),
                     "Prodotto": str(prodotto_row["Prodotto"]),
                     "Quantità": int(item.qty),
@@ -420,13 +420,11 @@ if st.button("Genera preventivo"):
                     "Prezzo totale": f"{row_total:,.2f} €",
                     "UnitPriceRaw": float(unit_raw),
                     "Descrizione": str(prodotto_row["Descrizione"]),
-                }
-                righe_tabella_internal.append(vis_full)
-                righe_tabella.append({k: vis_full[k] for k in ["Codice","Prodotto","Quantità","Prezzo unitario","Prezzo totale"]})
+                })
         except Exception as e:
             st.error(f"Configuratore MK: {e}")
 
-    # ======= Parte 3: DISTINTA dal CONFIGURATORE SOLARE (logica invariata) =======
+    # ======= Parte 3: DISTINTA dal CONFIGURATORE SOLARE (immutata) =======
     if cfg_input_sol is not None:
         try:
             distinta_sol = genera_distinta_solare(cfg_input_sol)   # List[LineItem]
@@ -445,7 +443,7 @@ if st.button("Genera preventivo"):
                 row_total = unit_raw * item.qty
                 totale_configurazione += row_total
 
-                vis_full = {
+                righe_tabella_internal.append({
                     "Codice": str(prodotto_row["Codice"]),
                     "Prodotto": str(prodotto_row["Prodotto"]),
                     "Quantità": int(item.qty),
@@ -453,30 +451,25 @@ if st.button("Genera preventivo"):
                     "Prezzo totale": f"{row_total:,.2f} €",
                     "UnitPriceRaw": float(unit_raw),
                     "Descrizione": str(prodotto_row["Descrizione"]),
-                }
-                righe_tabella_internal.append(vis_full)
-                righe_tabella.append({k: vis_full[k] for k in ["Codice","Prodotto","Quantità","Prezzo unitario","Prezzo totale"]})
+                })
         except Exception as e:
             st.error(f"Configuratore solare: {e}")
 
-    # ======= Persistenza + Render Tabella / Azioni =======
-    df_full = pd.DataFrame(righe_tabella_internal)  # include colonne tecniche
-    # Salva stato
-    st.session_state["output_rows"] = righe_tabella  # solo colonne visibili
-    st.session_state["output_rows_internal"] = righe_tabella_internal
-    st.session_state["totale_conf"] = float(totale_configurazione)
-    st.session_state["df_current_full"] = df_full.copy()
-    st.session_state["df_original_qty"] = df_full["Quantità"].tolist()
-    st.session_state["rendered_this_run"] = True
-    # Mostra tabella + azioni (primo elemento negli output)
-    show_summary_table_and_actions(df_full, totale_configurazione)
+    # ======= Persistenza + Render (tabella + azioni) =======
+    df_full = pd.DataFrame(righe_tabella_internal)
+    ss["output_rows_internal"] = df_full.to_dict(orient="records")
+    ss["output_rows"] = df_full[["Codice","Prodotto","Quantità","Prezzo unitario","Prezzo totale"]].to_dict(orient="records")
+    ss["totale_conf"] = float(totale_configurazione)
+    ss["df_current_full"] = df_full.copy()
+    ss["qty_edit_mode"] = False
+    ss["qty_edit_values"] = df_full["Quantità"].astype(int).tolist()
+    ss["rendered_this_run"] = True
+
+    render_output_table_and_actions(df_full, totale_configurazione)
 
 # -------------------------------------------------------
-# RENDER persistente (per far funzionare azioni post-rerun)
+# RENDER persistente (per azioni post-rerun)
 # -------------------------------------------------------
-if st.session_state.get("output_rows_internal") and not st.session_state.get("rendered_this_run"):
-    df_full = pd.DataFrame(st.session_state["output_rows_internal"])
-    show_summary_table_and_actions(
-        df_full,
-        st.session_state.get("totale_conf", 0.0)
-    )
+if ss.get("output_rows_internal") and not ss.get("rendered_this_run"):
+    df_full = pd.DataFrame(ss["output_rows_internal"])
+    render_output_table_and_actions(df_full, ss.get("totale_conf", 0.0))
