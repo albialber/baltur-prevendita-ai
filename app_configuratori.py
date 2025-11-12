@@ -189,17 +189,18 @@ if st.button("Genera preventivo", type="primary"):
     st.session_state["unit_price_map"] = {}
     st.session_state["prodotto_map"] = {}
 
-    def add_line(codice: str, qty: int):
+    def add_line(codice: str, qty: int) -> float:
+        """
+        Aggiunge una riga in output e restituisce il totale riga per sommarlo a 'totale'.
+        """
         rec = df[df["Codice"].astype(str) == str(codice)]
         if rec.empty:
             st.warning(f"Codice non trovato in listino: {codice}")
-            return
+            return 0.0
         row = rec.iloc[0]
         price = float(row["Prezzo di listino"]) if "Prezzo di listino" in row else 0.0
         price_net = prezzo_con_sconti(price, sconti) if mostra_netto else price
         row_total = price_net * qty
-        nonlocal totale
-        totale += row_total
         st.session_state["descrizioni_map"][str(codice)] = str(row.get("Descrizione", ""))
         st.session_state["unit_price_map"][str(codice)] = float(price_net)
         st.session_state["prodotto_map"][str(codice)] = str(row.get("Prodotto", ""))
@@ -210,12 +211,13 @@ if st.button("Genera preventivo", type="primary"):
             "Prezzo unitario": f"{price_net:,.2f} €",
             "Prezzo totale": f"{row_total:,.2f} €",
         })
+        return float(row_total)
 
     # --- Distinta MK ---
     if cfg_input_mk is not None:
         try:
             for it in genera_distinta_mk(cfg_input_mk):
-                add_line(it.code, it.qty)
+                totale += add_line(it.code, it.qty)
         except Exception as e:
             st.error(f"Configuratore MK: {e}")
 
@@ -223,7 +225,7 @@ if st.button("Genera preventivo", type="primary"):
     if cfg_input_sol is not None:
         try:
             for it in genera_distinta_solare(cfg_input_sol):
-                add_line(it.code, it.qty)
+                totale += add_line(it.code, it.qty)
         except Exception as e:
             st.error(f"Configuratore solare: {e}")
 
@@ -308,3 +310,4 @@ if st.button("Genera preventivo", type="primary"):
 if st.session_state.get("output_rows") and not st.session_state.get("qty_edit_mode"):
     st.markdown(rows_to_markdown_table(st.session_state["output_rows"], VISIBLE_COLS))
     st.markdown(f"**Totale configurazione:** {st.session_state['totale_conf']:,.2f} €")
+
