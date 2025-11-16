@@ -1,9 +1,13 @@
 import streamlit as st
-import pickle
 import pandas as pd
 from typing import List, Dict
 
-from rules_configuratore_mk import ConfigInput as ConfigInputMK, genera_distinta as genera_distinta_mk
+from rules_configuratore_mk import (
+    ConfigInput as ConfigInputMK,
+    genera_distinta as genera_distinta_mk,
+    SSB_MODELS,
+    SII_PRO_MODELS,
+)
 from rules_configuratore_solare import ConfigSolareInput, genera_distinta_solare
 from utils_catalogo import get_catalog_df, prezzo_con_sconti, rows_to_markdown_table
 
@@ -56,6 +60,8 @@ st.session_state.setdefault("qty_edit_values", [])
 st.session_state.setdefault("descrizioni_map", {})
 st.session_state.setdefault("unit_price_map", {})
 st.session_state.setdefault("prodotto_map", {})
+st.session_state.setdefault("show_mk", False)
+st.session_state.setdefault("show_solar", False)
 
 # --- Prezzi netti o di listino ---
 mostra_netto = st.checkbox("Mostra prezzi netti invece del listino")
@@ -64,89 +70,111 @@ if mostra_netto:
 else:
     sconti = []
 
+# ==========================================================
+# CONFIGURATORE SMILE ENERGY MK (con pulsante Apri)
+# ==========================================================
 st.markdown("---")
-st.subheader("🧩 Configuratore SMILE ENERGY MK")
+st.subheader("🔥 Configuratore SMILE ENERGY MK")
 
-# --- Selettori MK ---
-macro_label_to_value = {
-    "Cascata interno - in linea": "INT_LINEA",
-    "Cascata interno - ad isola": "INT_ISOLA",
-    "Cascata esterno": "ESTERNO",
-    "Singola interno": "SINGOLO_INT",
-    "Singola esterno": "SINGOLO_EST",
-}
-macro_label = st.selectbox("Seleziona configurazione", list(macro_label_to_value.keys()))
-macro_value = macro_label_to_value[macro_label]
+if st.button("Apri configuratore SMILE ENERGY MK"):
+    st.session_state["show_mk"] = True
 
 cfg_input_mk = None
 
-if macro_value in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
-    st.caption("Seleziona quantità (totale 2–4 caldaie, anche modelli diversi).")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        mk50 = st.number_input("SMILE ENERGY MK 50", 0, 4, 0)
-        mk70 = st.number_input("SMILE ENERGY MK 70", 0, 4, 0)
-    with c2:
-        mk90 = st.number_input("SMILE ENERGY MK 90", 0, 4, 0)
-        mk115 = st.number_input("SMILE ENERGY MK 115", 0, 4, 0)
-    with c3:
-        mk160sp = st.number_input("SMILE ENERGY MK 160SP", 0, 4, 0)
-        mk160 = st.number_input("SMILE ENERGY MK 160", 0, 4, 0)
-
-    caldaie_sel = {
-        "SMILE ENERGY MK 50": mk50,
-        "SMILE ENERGY MK 70": mk70,
-        "SMILE ENERGY MK 90": mk90,
-        "SMILE ENERGY MK 115": mk115,
-        "SMILE ENERGY MK 160SP": mk160sp,
-        "SMILE ENERGY MK 160": mk160,
+if st.session_state["show_mk"]:
+    macro_label_to_value = {
+        "Cascata interno - in linea": "INT_LINEA",
+        "Cascata interno - ad isola": "INT_ISOLA",
+        "Cascata esterno": "ESTERNO",
+        "Singola interno": "SINGOLO_INT",
+        "Singola esterno": "SINGOLO_EST",
     }
-    tot_calde = sum(caldaie_sel.values())
-    st.caption(f"Totale caldaie selezionate: **{tot_calde}**")
+    macro_label = st.selectbox("Seleziona configurazione", list(macro_label_to_value.keys()))
+    macro_value = macro_label_to_value[macro_label]
 
-    sep_options = {
-        "NESSUNA": "NESSUNA",
-        "SCAMBIATORE SALDOBRASATO SSB": "SSB",
-        "SCAMBIATORE ISPEZIONABILE SII PRO": "SII_PRO",
-        "EQUILIBRATORE DI PORTATA": "EQUILIBRATORE",
-    }
-    separatore_label = st.selectbox("Seleziona separatore idraulico", list(sep_options.keys()))
-    separatore_value = sep_options[separatore_label]
+    if macro_value in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
+        st.caption("Seleziona quantità (totale 2–4 caldaie, anche modelli diversi).")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            mk50 = st.number_input("SMILE ENERGY MK 50", 0, 4, 0)
+            mk70 = st.number_input("SMILE ENERGY MK 70", 0, 4, 0)
+        with c2:
+            mk90 = st.number_input("SMILE ENERGY MK 90", 0, 4, 0)
+            mk115 = st.number_input("SMILE ENERGY MK 115", 0, 4, 0)
+        with c3:
+            mk160sp = st.number_input("SMILE ENERGY MK 160SP", 0, 4, 0)
+            mk160 = st.number_input("SMILE ENERGY MK 160", 0, 4, 0)
 
-    sottoopzione = None
-    ssb_code = None
-    sii_code = None
+        caldaie_sel = {
+            "SMILE ENERGY MK 50": mk50,
+            "SMILE ENERGY MK 70": mk70,
+            "SMILE ENERGY MK 90": mk90,
+            "SMILE ENERGY MK 115": mk115,
+            "SMILE ENERGY MK 160SP": mk160sp,
+            "SMILE ENERGY MK 160": mk160,
+        }
+        tot_calde = sum(caldaie_sel.values())
+        st.caption(f"Totale caldaie selezionate: **{tot_calde}**")
 
-    if separatore_value in ("SSB", "EQUILIBRATORE"):
-        sottoopzione = st.radio("Sotto-opzione", ["KIT_TUBI", "KIT_TUBI_CIRC", "NESSUNA"], index=0, horizontal=True)
+        sep_options = {
+            "NESSUNA": "NESSUNA",
+            "SCAMBIATORE SALDOBRASATO SSB": "SSB",
+            "SCAMBIATORE ISPEZIONABILE SII PRO": "SII_PRO",
+            "EQUILIBRATORE DI PORTATA": "EQUILIBRATORE",
+        }
+        separatore_label = st.selectbox("Seleziona separatore idraulico", list(sep_options.keys()))
+        separatore_value = sep_options[separatore_label]
 
-    if separatore_value == "SSB":
-        ssb_code = st.text_input("Codice scambiatore SSB (opzionale)") or None
-    if separatore_value == "SII_PRO":
-        sii_code = st.text_input("Codice scambiatore SII PRO (opzionale)") or None
+        sottoopzione = None
+        ssb_code = None
+        sii_code = None
 
-    centralina = st.selectbox("Centralina", ["ALPHA", "THETA", "OMEGA", "MODBUS", "0-10V"], index=0)
+        if separatore_value in ("SSB", "EQUILIBRATORE"):
+            sottoopzione = st.radio("Sotto-opzione", ["KIT_TUBI", "KIT_TUBI_CIRC", "NESSUNA"], index=0, horizontal=True)
 
-    cfg_input_mk = ConfigInputMK(
-        macro=macro_value,
-        caldaie=caldaie_sel,
-        separatore=separatore_value,
-        sottoopzione=sottoopzione,
-        ssb_code=ssb_code,
-        sii_code=sii_code,
-        centralina=centralina,
-    )
+        # Selezione scambiatore SSB da lista (non più text_input)
+        if separatore_value == "SSB":
+            ssb_names = ["-- Seleziona scambiatore SSB --"] + [name for _, name in SSB_MODELS]
+            scelta_ssb = st.selectbox("Scambiatore saldobrasato SSB", ssb_names)
+            if scelta_ssb != ssb_names[0]:
+                for code, name in SSB_MODELS:
+                    if name == scelta_ssb:
+                        ssb_code = code
+                        break
 
-elif macro_value in ("SINGOLO_INT", "SINGOLO_EST"):
-    modello = st.selectbox("Modello", ["MK 50", "MK 70", "MK 90", "MK 115", "MK 160SP", "MK 160"], index=0)
-    sottocat = st.radio("Sottocategoria", ["SSB", "EQUILIBRATORE"], index=0, horizontal=True)
-    cfg_input_mk = ConfigInputMK(macro=macro_value, singola_modello=modello, singola_sottocat=sottocat)
+        # Selezione scambiatore SII PRO da lista
+        if separatore_value == "SII_PRO":
+            sii_names = ["-- Seleziona scambiatore SII PRO --"] + [name for _, name in SII_PRO_MODELS]
+            scelta_sii = st.selectbox("Scambiatore ispezionabile SII PRO", sii_names)
+            if scelta_sii != sii_names[0]:
+                for code, name in SII_PRO_MODELS:
+                    if name == scelta_sii:
+                        sii_code = code
+                        break
 
+        centralina = st.selectbox("Centralina", ["ALPHA", "THETA", "OMEGA", "MODBUS", "0-10V"], index=0)
+
+        cfg_input_mk = ConfigInputMK(
+            macro=macro_value,
+            caldaie=caldaie_sel,
+            separatore=separatore_value,
+            sottoopzione=sottoopzione,
+            ssb_code=ssb_code,
+            sii_code=sii_code,
+            centralina=centralina,
+        )
+
+    elif macro_value in ("SINGOLO_INT", "SINGOLO_EST"):
+        modello = st.selectbox("Modello", ["MK 50", "MK 70", "MK 90", "MK 115", "MK 160SP", "MK 160"], index=0)
+        sottocat = st.radio("Sottocategoria", ["SSB", "EQUILIBRATORE"], index=0, horizontal=True)
+        cfg_input_mk = ConfigInputMK(macro=macro_value, singola_modello=modello, singola_sottocat=sottocat)
+
+# ==========================================================
+# CONFIGURATORE SOLARE TERMICO
+# ==========================================================
 st.markdown("---")
 st.subheader("☀️ Configuratore solare termico")
 
-if "show_solar" not in st.session_state:
-    st.session_state["show_solar"] = False
 if st.button("Apri configuratore solare termico"):
     st.session_state["show_solar"] = True
 
@@ -179,7 +207,9 @@ if st.session_state["show_solar"]:
 
 VISIBLE_COLS = ["Codice", "Prodotto", "Quantità", "Prezzo unitario", "Prezzo totale"]
 
-# --- Azione principale ---
+# ==========================================================
+# GENERA PREVENTIVO
+# ==========================================================
 if st.button("Genera preventivo", type="primary"):
     df = get_catalog_df()
     righe: List[Dict] = []
@@ -191,21 +221,37 @@ if st.button("Genera preventivo", type="primary"):
 
     def add_line(codice: str, qty: int) -> float:
         """
-        Aggiunge una riga in output e restituisce il totale riga per sommarlo a 'totale'.
+        Aggiunge una riga in output e restituisce il totale riga.
+        Gestisce anche codici con zeri davanti (es. 0004050190).
         """
-        rec = df[df["Codice"].astype(str) == str(codice)]
+        cod_str = str(codice)
+        cod_col = df["Codice"].astype(str)
+
+        # match diretto
+        rec = df[cod_col == cod_str]
+
+        # se non trova, prova togliendo gli zeri iniziali
+        if rec.empty:
+            alt = cod_str.lstrip("0")
+            if alt != cod_str:
+                rec = df[cod_col == alt]
+
         if rec.empty:
             st.warning(f"Codice non trovato in listino: {codice}")
             return 0.0
+
         row = rec.iloc[0]
         price = float(row["Prezzo di listino"]) if "Prezzo di listino" in row else 0.0
         price_net = prezzo_con_sconti(price, sconti) if mostra_netto else price
         row_total = price_net * qty
-        st.session_state["descrizioni_map"][str(codice)] = str(row.get("Descrizione", ""))
-        st.session_state["unit_price_map"][str(codice)] = float(price_net)
-        st.session_state["prodotto_map"][str(codice)] = str(row.get("Prodotto", ""))
+
+        code_key = str(row.get("Codice", cod_str))
+        st.session_state["descrizioni_map"][code_key] = str(row.get("Descrizione", ""))
+        st.session_state["unit_price_map"][code_key] = float(price_net)
+        st.session_state["prodotto_map"][code_key] = str(row.get("Prodotto", ""))
+
         righe.append({
-            "Codice": row.get("Codice", codice),
+            "Codice": code_key,
             "Prodotto": row.get("Prodotto", ""),
             "Quantità": int(qty),
             "Prezzo unitario": f"{price_net:,.2f} €",
@@ -213,7 +259,7 @@ if st.button("Genera preventivo", type="primary"):
         })
         return float(row_total)
 
-    # --- Distinta MK ---
+    # Distinta MK
     if cfg_input_mk is not None:
         try:
             for it in genera_distinta_mk(cfg_input_mk):
@@ -221,7 +267,7 @@ if st.button("Genera preventivo", type="primary"):
         except Exception as e:
             st.error(f"Configuratore MK: {e}")
 
-    # --- Distinta Solare ---
+    # Distinta solare
     if cfg_input_sol is not None:
         try:
             for it in genera_distinta_solare(cfg_input_sol):
@@ -230,7 +276,7 @@ if st.button("Genera preventivo", type="primary"):
             st.error(f"Configuratore solare: {e}")
 
     st.session_state["output_rows"] = righe
-    st.session_state["totale_conf"] = float(totale)
+    st.session_state["totale_conf"] = float(titale) if False else float(totale)  # safe
     st.session_state["qty_edit_mode"] = False
     st.session_state["qty_edit_values"] = [int(r["Quantità"]) for r in righe]
 
@@ -258,7 +304,12 @@ if st.button("Genera preventivo", type="primary"):
             codice = str(r.get("Codice", ""))
             nome = st.session_state["prodotto_map"].get(codice, r.get("Prodotto", ""))
             descr = st.session_state["descrizioni_map"].get(codice, "")
-            st.markdown(f"**{nome}**  \n**Codice:** `{codice}`  \n**Quantità:** {int(r.get('Quantità', 0))}  \n**Descrizione:** {descr}")
+            st.markdown(
+                f"**{nome}**  \n"
+                f"**Codice:** `{codice}`  \n"
+                f"**Quantità:** {int(r.get('Quantità', 0))}  \n"
+                f"**Descrizione:** {descr}"
+            )
 
     if st.session_state.get("qty_edit_mode"):
         st.markdown("### Modifica quantità")
@@ -306,8 +357,7 @@ if st.button("Genera preventivo", type="primary"):
                 st.session_state["qty_edit_mode"] = False
                 st.session_state["qty_edit_values"] = []
 
-# --- Persistenza UI ---
+# Render persitente (se c'è già un riepilogo)
 if st.session_state.get("output_rows") and not st.session_state.get("qty_edit_mode"):
     st.markdown(rows_to_markdown_table(st.session_state["output_rows"], VISIBLE_COLS))
     st.markdown(f"**Totale configurazione:** {st.session_state['totale_conf']:,.2f} €")
-
