@@ -27,7 +27,7 @@ MAX_QTY = 4
 # =========================
 # CODICI (dal listino)
 # =========================
-C = {
+C: Dict[str, str] = {
     # Telai muro / isola
     "TELAIO_MURO_1E": "96870610",
     "TELAIO_MURO_2E": "96870611",
@@ -49,8 +49,7 @@ C = {
     "VALV_4_BAR_1_2\"Fx3_4\"F": "96870518",
     "VALV_INT_COMB_1": "96900033",
     "VALV_INT_COMB_1_1_2": "96900035",
-    # nuova valvola intercettazione combustibile per potenze > 450 kW
-    "VALV_INT_COMB_2": "96900248",
+    "VALV_INT_COMB_SUPER": "96900248",
 
     # Collettori (gas / MI-RI / scarico condensa)
     "COLL_GAS_1E": "96870505",
@@ -118,9 +117,18 @@ C = {
     "MK115": "82000350",
     "MK160SP": "82000360",
     "MK160": "82000370",
+
+    # Neutralizzatori condensa singole (0004050xxx)
+    "NEUTR_189": "0004050189",
+    "NEUTR_188": "0004050188",
+    "NEUTR_190": "0004050190",
+
+    # Neutralizzatori condensa cascata
+    "NEUTR_CASC_SOTTO_350": "0004050190",
+    "NEUTR_CASC_SOPRA_350": "96600419",
 }
 
-# --- aggiunta: mappa nomi -> codici caldaie per distinta cascata ---
+# --- mappa nomi -> codici caldaie per distinta cascata ---
 BOILERS_CODE_CASCATA = {
     "SMILE ENERGY MK 50": C["MK50"],
     "SMILE ENERGY MK 70": C["MK70"],
@@ -130,9 +138,53 @@ BOILERS_CODE_CASCATA = {
     "SMILE ENERGY MK 160": C["MK160"],
 }
 
-# (facoltativo) liste scambiatori per UI
-SSB_MODELS: List[tuple[str, str]] = []
-SII_PRO_MODELS: List[tuple[str, str]] = []
+# Liste scambiatori per UI (codice, nome)
+SSB_MODELS: List[tuple[str, str]] = [
+    ("96900325", "SSB 31"),
+    ("96900326", "SSB 55"),
+    ("96900327", "SSB 68"),
+    ("96900328", "SSB 90"),
+    ("96900329", "SSB 115"),
+    ("96900330", "SSB 145"),
+    ("96900331", "SSB 180"),
+    ("96900332", "SSB 233"),
+    ("96900333", "SSB 268"),
+    ("96900334", "SSB 322"),
+    ("96900335", "SSB 357"),
+    ("96900337", "SSB 447"),
+    ("96900338", "SSB 501"),
+    ("96900339", "SSB 536"),
+    ("96900340", "SSB 591"),
+    ("96900341", "SSB 626"),
+    ("96900342", "SSB 680"),
+]
+
+SII_PRO_MODELS: List[tuple[str, str]] = [
+    ("96900400", "SII 55 PRO"),
+    ("96900401", "SII 68 PRO"),
+    ("96900402", "SII 90 PRO"),
+    ("96900403", "SII 115 PRO"),
+    ("96900404", "SII 145 PRO"),
+    ("96900405", "SII 180 PRO"),
+    ("96900406", "SII 233 PRO"),
+    ("96900407", "SII 268 PRO"),
+    ("96900408", "SII 322 PRO"),
+    ("96900409", "SII 357 PRO"),
+    ("96900410", "SII 412 PRO"),
+    ("96900411", "SII 447 PRO"),
+    ("96900412", "SII 500 PRO"),
+    ("96900413", "SII 536 PRO"),
+    ("96900414", "SII 590 PRO"),
+    ("96900415", "SII 626 PRO"),
+    ("96900416", "SII 680 PRO"),
+    ("96900417", "SII 715 PRO"),
+    ("96900418", "SII 850 PRO"),
+    ("96900419", "SII 1000 PRO"),
+    ("96900420", "SII 1200 PRO"),
+    ("96900421", "SII 1600 PRO"),
+    ("96900422", "SII 2000 PRO"),
+    ("96900423", "SII 2350 PRO"),
+]
 
 # =========================
 # Tipi & strutture
@@ -170,7 +222,7 @@ def _norm_boiler_name(name: str) -> str:
 
 def _potenze(caldaie: Dict[str, int]) -> Tuple[int, int, int, Dict[int, int]]:
     qty = 0
-    potenze = []
+    potenze: List[int] = []
     attacchi = {80: 0, 100: 0}
     for k, q in caldaie.items():
         std = _norm_boiler_name(k)
@@ -189,33 +241,19 @@ def _potenze(caldaie: Dict[str, int]) -> Tuple[int, int, int, Dict[int, int]]:
     pmax = max(potenze) if potenze else 0
     return qty, ptot, pmax, attacchi
 
-def _valvola_inail_cascata(pmax: int, ptot: int) -> Optional[LineItem]:
-    """
-    Valvola di sicurezza INAIL per configurazioni in cascata.
-    - Per potenze totali <= 512 kW: logica esistente (2,7 bar o 4 bar a seconda di pmax)
-    - Per potenze totali > 512 kW: nessuna valvola viene proposta
-      (il messaggio di esclusione viene gestito nell'app Streamlit).
-    """
-    if ptot > 512:
-        return None
+def _valvola_inail_cascata(pmax: int) -> LineItem:
     if pmax in (46, 61):
         return LineItem(C["VALV_2_7_BAR_1\":1_1_4F"], 'VALV. INAIL 2.7 BAR 1"Fx1"1/4F', 1)
     return LineItem(C["VALV_4_BAR_1\":1_1_4F"], 'VALV. INAIL 4 BAR 1"Fx1"1/4F', 1)
 
 def _valvola_interc_comb(ptot: int) -> Optional[LineItem]:
-    """
-    Valvola intercettazione combustibile:
-    - < 250 kW  -> 96900033 (1")
-    - 250–450 kW -> 96900035 (1"1/2)
-    - > 450 kW  -> 96900248 (2")
-    """
+    """Valvola intercettazione combustibile (VIC) in funzione della potenza totale."""
     if ptot < 250:
-        return LineItem(C["VALV_INT_COMB_1"], 'VALVOLA INTERC.NE COMB. 1"')
+        return LineItem(C["VALV_INT_COMB_1"], 'VALVOLA INTERC.NE COMB. 1"', 1)
     if 250 <= ptot <= 450:
-        return LineItem(C["VALV_INT_COMB_1_1_2"], 'VALVOLA INTERC.NE COMB. 1"1/2')
-    if ptot > 450:
-        return LineItem(C["VALV_INT_COMB_2"], 'VALVOLA INTERC.NE COMB. 2"')
-    return None
+        return LineItem(C["VALV_INT_COMB_1_1_2"], 'VALVOLA INTERC.NE COMB. 1"1/2', 1)
+    # ptot > 450
+    return LineItem(C["VALV_INT_COMB_SUPER"], "VALVOLA INTERC.NE COMB. SUPERIORE", 1)
 
 # =========================
 # Telai
@@ -353,9 +391,7 @@ def _fumisteria_isola(ptot: int, attacchi: Dict[int, int], qty: int) -> List[Lin
 # =========================
 def _acc_nessuna(pmax: int, ptot: int) -> List[LineItem]:
     items = [LineItem(C["KIT_INAIL_ORIZZ"], "KIT INAIL ORIZZONTALE", 1)]
-    valv = _valvola_inail_cascata(pmax, ptot)
-    if valv:
-        items.append(valv)
+    items.append(_valvola_inail_cascata(pmax))
     vcomb = _valvola_interc_comb(ptot)
     if vcomb:
         items.append(vcomb)
@@ -365,21 +401,15 @@ def _acc_ssb(pmax: int, ptot: int, sottoopzione: SottoOpz, ssb_code: Optional[st
     items: List[LineItem] = []
     if sottoopzione == "KIT_TUBI":
         items.append(LineItem(C["KIT_TUBI_SCAMB_DX"], "KIT TUBI SCAMBIATORE BOX DX", 1))
-        valv = _valvola_inail_cascata(pmax, ptot)
-        if valv:
-            items.append(valv)
+        items.append(_valvola_inail_cascata(pmax))
     elif sottoopzione == "KIT_TUBI_CIRC":
         items.append(LineItem(C["KIT_TUBI_SCAMB_CIRC_DX"], "KIT TUBI SCAMB.-CIRCOL. BOX DX", 1))
-        valv = _valvola_inail_cascata(pmax, ptot)
-        if valv:
-            items.append(valv)
-        circ = C["CIRC_MAGNA1_50_100"] if ptot < 280 else C["CIRC_MAGNA1_65_150"]
-        items.append(LineItem(circ, "CIRCOLATORE SECONDARIO", 1))
+        items.append(_valvola_inail_cascata(pmax))
+        circ_code = C["CIRC_MAGNA1_50_100"] if ptot < 280 else C["CIRC_MAGNA1_65_150"]
+        items.append(LineItem(circ_code, "CIRCOLATORE SECONDARIO", 1))
     else:
         items.append(LineItem(C["KIT_INAIL_ORIZZ"], "KIT INAIL ORIZZONTALE", 1))
-        valv = _valvola_inail_cascata(pmax, ptot)
-        if valv:
-            items.append(valv)
+        items.append(_valvola_inail_cascata(pmax))
     vcomb = _valvola_interc_comb(ptot)
     if vcomb:
         items.append(vcomb)
@@ -388,10 +418,10 @@ def _acc_ssb(pmax: int, ptot: int, sottoopzione: SottoOpz, ssb_code: Optional[st
     return items
 
 def _acc_sii(pmax: int, ptot: int, sii_code: Optional[str]) -> List[LineItem]:
-    items = [LineItem(C["KIT_INAIL_ORIZZ"], "KIT INAIL ORIZZONTALE", 1)]
-    valv = _valvola_inail_cascata(pmax, ptot)
-    if valv:
-        items.append(valv)
+    items = [
+        LineItem(C["KIT_INAIL_ORIZZ"], "KIT INAIL ORIZZONTALE", 1),
+        _valvola_inail_cascata(pmax),
+    ]
     vcomb = _valvola_interc_comb(ptot)
     if vcomb:
         items.append(vcomb)
@@ -405,22 +435,16 @@ def _acc_equil(ptot: int, pmax: int, sottoopzione: SottoOpz) -> List[LineItem]:
     if sottoopzione == "KIT_TUBI":
         items.append(LineItem(C[f"EQUIL_{dn}"], f"EQUILIBRATORE BOX {dn}", 1))
         items.append(LineItem(C[f"KIT_TUBI_EQUIL_{dn}"], f"KIT TUBI EQUILIBRATORE BOX {dn}", 1))
-        valv = _valvola_inail_cascata(pmax, ptot)
-        if valv:
-            items.append(valv)
+        items.append(_valvola_inail_cascata(pmax))
     elif sottoopzione == "KIT_TUBI_CIRC":
         items.append(LineItem(C[f"EQUIL_{dn}"], f"EQUILIBRATORE BOX {dn}", 1))
         items.append(LineItem(C[f"KIT_TUBI_EQUIL_CIRC_{dn}"], f"KIT TUBI EQUIL.-CIRC. BOX {dn}", 1))
-        valv = _valvola_inail_cascata(pmax, ptot)
-        if valv:
-            items.append(valv)
+        items.append(_valvola_inail_cascata(pmax))
         circ = C["CIRC_MAGNA1_50_100"] if dn == "DN65" else C["CIRC_MAGNA1_65_150"]
         items.append(LineItem(circ, "CIRCOLATORE SECONDARIO", 1))
     else:
         items.append(LineItem(C["KIT_INAIL_ORIZZ"], "KIT INAIL ORIZZONTALE", 1))
-        valv = _valvola_inail_cascata(pmax, ptot)
-        if valv:
-            items.append(valv)
+        items.append(_valvola_inail_cascata(pmax))
         items.append(LineItem(C[f"EQUIL_{dn}"], f"EQUILIBRATORE BOX {dn}", 1))
     vcomb = _valvola_interc_comb(ptot)
     if vcomb:
@@ -475,7 +499,7 @@ def _box_pannelli_esterno(separatore: Separatore, sottoopzione: Optional[SottoOp
         add = 1
     return [
         LineItem(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE", qty_cald + add),
-        LineItem(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE", 1)
+        LineItem(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE", 1),
     ]
 
 # =========================
@@ -493,9 +517,18 @@ def _boiler_lines_cascata(caldaie: Dict[str, int]) -> List[LineItem]:
     return items
 
 # =========================
+# Neutralizzatore di condensa per cascata
+# =========================
+def _neutralizzatore_cascata(ptot: int) -> LineItem:
+    if ptot < 350:
+        return LineItem(C["NEUTR_CASC_SOTTO_350"], "NEUTRALIZZATORE CONDENSA", 1)
+    return LineItem(C["NEUTR_CASC_SOPRA_350"], "NEUTRALIZZATORE CONDENSA", 1)
+
+# =========================
 # GENERATORE DISTINTA
 # =========================
 def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
+    # Configurazioni in cascata
     if cfg.macro in ("INT_LINEA", "INT_ISOLA", "ESTERNO"):
         if not cfg.caldaie or not cfg.separatore or not cfg.centralina:
             raise ValueError("Per le configurazioni in cascata servono caldaie, separatore e centralina.")
@@ -542,20 +575,29 @@ def genera_distinta(cfg: ConfigInput) -> List[LineItem]:
         # Caldaie in distinta per tutte le configurazioni in batteria
         boilers = _boiler_lines_cascata(cfg.caldaie)
 
-        out = []
-        out += boilers + telai + coll + acc + fumi + centr
+        # Neutralizzatore di condensa (tutte le cascata, interno/esterno)
+        neutro = [_neutralizzatore_cascata(ptot)]
+
+        out: List[LineItem] = []
+        out += boilers + telai + coll + acc + fumi + centr + neutro
 
         # Esterno: box/pannelli
         if cfg.macro == "ESTERNO":
             out += _box_pannelli_esterno(cfg.separatore, cfg.sottoopzione, qty)
 
+        # Se potenza totale >512 escludi la valvola di sicurezza 96870519
+        if ptot > 512:
+            code_exclude = C["VALV_4_BAR_1\":1_1_4F"]
+            out = [li for li in out if li.code != code_exclude]
+
         return _merge_same_code(out)
 
-    # SINGOLE (immutato)
+    # Configurazioni singole
     if cfg.macro in ("SINGOLO_INT", "SINGOLO_EST"):
         if not cfg.singola_modello or not cfg.singola_sottocat:
             raise ValueError("Per le singole servono modello e sottocategoria.")
         return _distinta_singola(cfg)
+
     raise ValueError("Macro configurazione non riconosciuta.")
 
 def _merge_same_code(items: List[LineItem]) -> List[LineItem]:
@@ -572,54 +614,68 @@ def _merge_same_code(items: List[LineItem]) -> List[LineItem]:
     return [acc[c] for c in ordered]
 
 # =========================
-# DISTINTE - SINGOLE (immutato)
+# DISTINTE - SINGOLE
 # =========================
 def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
     m = cfg.singola_modello.strip().upper().replace(" ", "")
     cat = cfg.singola_sottocat
 
-    def LI(code, name, qty=1): return LineItem(code, name, qty)
+    def LI(code, name, qty=1):
+        return LineItem(code, name, qty)
 
     out: List[LineItem] = []
 
+    # Configurazioni interne singole
     if cfg.macro == "SINGOLO_INT":
         if cat == "SSB":
             if m == "MK50":
-                out = [LI(C["MK50"], "SMILE ENERGY MK 50"),
-                       LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
-                       LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
-                       LI("96900326", "SSB 55"),
-                       LI(C["VALV_2_7_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 2.7 BAR 1/2\"Fx3/4\"F")]
+                out = [
+                    LI(C["MK50"], "SMILE ENERGY MK 50"),
+                    LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
+                    LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
+                    LI("96900326", "SSB 55"),
+                    LI(C["VALV_2_7_BAR_1_2\"Fx3_4\"F"], 'VALV. INAIL 2.7 BAR 1/2"Fx3/4"F'),
+                ]
             elif m == "MK70":
-                out = [LI(C["MK70"], "SMILE ENERGY MK 70"),
-                       LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
-                       LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
-                       LI("96900327", "SSB 68"),
-                       LI(C["VALV_2_7_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 2.7 BAR 1/2\"Fx3/4\"F")]
+                out = [
+                    LI(C["MK70"], "SMILE ENERGY MK 70"),
+                    LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
+                    LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
+                    LI("96900327", "SSB 68"),
+                    LI(C["VALV_2_7_BAR_1_2\"Fx3_4\"F"], 'VALV. INAIL 2.7 BAR 1/2"Fx3/4"F'),
+                ]
             elif m == "MK90":
-                out = [LI(C["MK90"], "SMILE ENERGY MK 90"),
-                       LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
-                       LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
-                       LI("96900328", "SSB 90"),
-                       LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 4 BAR 1/2\"Fx3/4\"F")]
+                out = [
+                    LI(C["MK90"], "SMILE ENERGY MK 90"),
+                    LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
+                    LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
+                    LI("96900328", "SSB 90"),
+                    LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], 'VALV. INAIL 4 BAR 1/2"Fx3/4"F'),
+                ]
             elif m == "MK115":
-                out = [LI(C["MK115"], "SMILE ENERGY MK 115"),
-                       LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
-                       LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
-                       LI("96900329", "SSB 115"),
-                       LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 4 BAR 1/2\"Fx3/4\"F")]
+                out = [
+                    LI(C["MK115"], "SMILE ENERGY MK 115"),
+                    LI("96870026", "KIT TUBI SCAMBIATORE (INT)"),
+                    LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
+                    LI("96900329", "SSB 115"),
+                    LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], 'VALV. INAIL 4 BAR 1/2"Fx3/4"F'),
+                ]
             elif m == "MK160SP":
-                out = [LI(C["MK160SP"], "SMILE ENERGY MK 160SP"),
-                       LI("96870027", "KIT TUBI SCAMBIATORE (INT) 160"),
-                       LI("96870529", "KIT INAIL SMILE ENERGY 160SP"),
-                       LI("96900331", "SSB 180"),
-                       LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 4 BAR 1/2\"Fx3/4\"F")]
+                out = [
+                    LI(C["MK160SP"], "SMILE ENERGY MK 160SP"),
+                    LI("96870027", "KIT TUBI SCAMBIATORE (INT) 160"),
+                    LI("96870529", "KIT INAIL SMILE ENERGY 160SP"),
+                    LI("96900331", "SSB 180"),
+                    LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], 'VALV. INAIL 4 BAR 1/2"Fx3/4"F'),
+                ]
             elif m == "MK160":
-                out = [LI(C["MK160"], "SMILE ENERGY MK 160"),
-                       LI("96870027", "KIT TUBI SCAMBIATORE (INT) 160"),
-                       LI("96870529", "KIT INAIL SMILE ENERGY 160"),
-                       LI("96900331", "SSB 180"),
-                       LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL 4 BAR 1/2\"Fx3/4\"F")]
+                out = [
+                    LI(C["MK160"], "SMILE ENERGY MK 160"),
+                    LI("96870027", "KIT TUBI SCAMBIATORE (INT) 160"),
+                    LI("96870529", "KIT INAIL SMILE ENERGY 160"),
+                    LI("96900331", "SSB 180"),
+                    LI(C["VALV_4_BAR_1_2\"Fx3_4\"F"], 'VALV. INAIL 4 BAR 1/2"Fx3/4"F'),
+                ]
 
         elif cat == "EQUILIBRATORE":
             if m in ("MK160", "MK160SP"):
@@ -632,17 +688,20 @@ def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
             ]
             for key, code_boiler, name_boiler, valv_code in base:
                 if m == key:
-                    out = [LI(code_boiler, name_boiler),
-                           LI("96870515", "EQUILIBRATORE (INT)"),
-                           LI("96870512", "KIT TUBI EQUIL (INT)"),
-                           LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
-                           LI(valv_code, "VALV. INAIL"),
-                           LI("96870500", "ACCESSORIO EQUIL (INT)")]
+                    out = [
+                        LI(code_boiler, name_boiler),
+                        LI("96870515", "EQUILIBRATORE (INT)"),
+                        LI("96870512", "KIT TUBI EQUIL (INT)"),
+                        LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
+                        LI(valv_code, "VALV. INAIL"),
+                        LI("96870500", "ACCESSORIO EQUIL (INT)"),
+                    ]
                     break
 
+    # Configurazioni esterne singole
     elif cfg.macro == "SINGOLO_EST":
         if cat == "SSB":
-            base = {
+            base_ssb = {
                 "MK50": (C["MK50"], "96900326"),
                 "MK70": (C["MK70"], "96900327"),
                 "MK90": (C["MK90"], "96900328"),
@@ -650,37 +709,62 @@ def _distinta_singola(cfg: ConfigInput) -> List[LineItem]:
                 "MK160SP": (C["MK160SP"], "96900331"),
                 "MK160": (C["MK160"], "96900331"),
             }
-            if m not in base: raise ValueError("Modello singola non riconosciuto")
-            boiler_code, ssb = base[m]
-            out = [LI(boiler_code, f"SMILE ENERGY {m.replace('MK','MK ')}"),
-                   LI("96870026" if m in ("MK50","MK70","MK90","MK115") else "96870027", "KIT TUBI SCAMB. (EST)"),
-                   LI(C["KIT_INAIL_ENERGY"] if m not in ("MK160","MK160SP") else C["KIT_INAIL_SMILE160"], "KIT INAIL"),
-                   LI(ssb, "SCAMBIATORE SSB"),
-                   LI(C["VALV_2_7_BAR_1_2\"Fx3_4\"F"] if m in ("MK50","MK70") else C["VALV_4_BAR_1_2\"Fx3_4\"F"], "VALV. INAIL"),
-                   LI(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE"),
-                   LI(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE")]
-            if m in ("MK160","MK160SP"):
+            if m not in base_ssb:
+                raise ValueError("Modello singola non riconosciuto")
+            boiler_code, ssb = base_ssb[m]
+            out = [
+                LI(boiler_code, f"SMILE ENERGY {m.replace('MK', 'MK ')}"),
+                LI("96870026" if m in ("MK50", "MK70", "MK90", "MK115") else "96870027", "KIT TUBI SCAMB. (EST)"),
+                LI(
+                    C["KIT_INAIL_ENERGY"] if m not in ("MK160", "MK160SP") else C["KIT_INAIL_SMILE160"],
+                    "KIT INAIL",
+                ),
+                LI(ssb, "SCAMBIATORE SSB"),
+                LI(
+                    C["VALV_2_7_BAR_1_2\"Fx3_4\"F"]
+                    if m in ("MK50", "MK70")
+                    else C["VALV_4_BAR_1_2\"Fx3_4\"F"],
+                    "VALV. INAIL",
+                ),
+                LI(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE"),
+                LI(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE"),
+            ]
+            if m in ("MK160", "MK160SP"):
                 out.append(LI(C["KIT_ESTENSIONE_BOX_SE"], "KIT ESTENSIONE BOX MODULO SE"))
         elif cat == "EQUILIBRATORE":
             if m in ("MK160", "MK160SP"):
                 raise ValueError("Equilibratore non selezionabile per MK 160 / 160SP (singola esterna).")
-            base = {
+            base_eq = {
                 "MK50": (C["MK50"], C["VALV_2_7_BAR_1_2\"Fx3_4\"F"]),
                 "MK70": (C["MK70"], C["VALV_2_7_BAR_1_2\"Fx3_4\"F"]),
                 "MK90": (C["MK90"], C["VALV_4_BAR_1_2\"Fx3_4\"F"]),
                 "MK115": (C["MK115"], C["VALV_4_BAR_1_2\"Fx3_4\"F"]),
             }
-            boiler_code, valv = base[m]
-            out = [LI(boiler_code, f"SMILE ENERGY {m.replace('MK','MK ')}"),
-                   LI("96870515", "EQUILIBRATORE (EST)"),
-                   LI("96870512", "KIT TUBI EQUIL (EST)"),
-                   LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
-                   LI(valv, "VALV. INAIL"),
-                   LI("96870500", "ACCESSORIO EQUIL (EST)"),
-                   LI(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE"),
-                   LI(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE"),
-                   LI(C["KIT_ESTENSIONE_BOX_SE"], "KIT ESTENSIONE BOX MODULO SE")]
+            boiler_code, valv = base_eq[m]
+            out = [
+                LI(boiler_code, f"SMILE ENERGY {m.replace('MK', 'MK ')}"),
+                LI("96870515", "EQUILIBRATORE (EST)"),
+                LI("96870512", "KIT TUBI EQUIL (EST)"),
+                LI(C["KIT_INAIL_ENERGY"], "KIT INAIL ENERGY"),
+                LI(valv, "VALV. INAIL"),
+                LI("96870500", "ACCESSORIO EQUIL (EST)"),
+                LI(C["BOX_1_MOD_SE"], "BOX 1 MODULO ENERGY SE"),
+                LI(C["KIT_PANNELLI_BOX_SE"], "KIT PANNELLI BOX ENERGY SE"),
+                LI(C["KIT_ESTENSIONE_BOX_SE"], "KIT ESTENSIONE BOX MODULO SE"),
+            ]
         else:
             raise ValueError("Sottocategoria singola esterna non riconosciuta")
+
+    # Aggiunta VIC + neutralizzatore per tutte le singole (interno/esterno)
+    if cfg.macro in ("SINGOLO_INT", "SINGOLO_EST"):
+        # VIC 96900033
+        out.append(LineItem(C["VALV_INT_COMB_1"], "VALVOLA INTERC.NE COMB. 1\"", 1))
+        # Neutralizzatore specifico per modello
+        if m in ("MK50", "MK70"):
+            out.append(LineItem(C["NEUTR_189"], "NEUTRALIZZATORE CONDENSA", 1))
+        elif m in ("MK90", "MK115", "MK160SP"):
+            out.append(LineItem(C["NEUTR_188"], "NEUTRALIZZATORE CONDENSA", 1))
+        elif m == "MK160":
+            out.append(LineItem(C["NEUTR_190"], "NEUTRALIZZATORE CONDENSA", 1))
 
     return _merge_same_code(out)
